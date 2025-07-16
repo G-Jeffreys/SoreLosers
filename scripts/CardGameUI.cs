@@ -1277,8 +1277,8 @@ public partial class CardGameUI : Control
         var splatPanel = new Panel();
         splatPanel.Name = "EggSplat";
 
-        // Calculate size based on coverage - MADE 6X LARGER (was 200, now 1200)
-        float baseSize = 1200.0f; // 6x larger than before for more dramatic effect
+        // Calculate size based on coverage - MADE 18X LARGER TOTAL (was 200, then 1200, now 3600)
+        float baseSize = 3600.0f; // 3x larger than previous 1200px = 18x larger than original!
         Vector2 splatSize = new Vector2(baseSize * coverage, baseSize * coverage);
         splatPanel.Size = splatSize;
 
@@ -1310,7 +1310,7 @@ public partial class CardGameUI : Control
         }
         playerVisualOverlays[localPlayerId].Add(splatPanel);
 
-        GD.Print($"DEBUG: Egg splat visual created with coverage {coverage:P1}, size {splatSize} (6x larger than before!)");
+        GD.Print($"DEBUG: Egg splat visual created with coverage {coverage:P1}, size {splatSize} (18x larger than original!)");
     }
 
     /// <summary>
@@ -1380,64 +1380,115 @@ public partial class CardGameUI : Control
     }
 
     /// <summary>
-    /// Clean sabotage visual effects
+    /// Clean sabotage visual effects - COMPREHENSIVE VERSION that finds ALL effects
     /// </summary>
     private void CleanSabotageVisual(SabotageType sabotageType)
     {
-        GD.Print($"DEBUG: Cleaning {sabotageType} visual effects");
+        GD.Print($"DEBUG: Cleaning {sabotageType} visual effects COMPREHENSIVELY");
 
         int localPlayerId = gameManager?.LocalPlayer?.PlayerId ?? 0;
         GD.Print($"DEBUG: Local player ID: {localPlayerId}");
 
-        if (!playerVisualOverlays.ContainsKey(localPlayerId))
+        // STEP 1: Clean tracked overlays (original method)
+        if (playerVisualOverlays.ContainsKey(localPlayerId))
         {
-            GD.Print("DEBUG: No visual overlays dictionary entry for local player");
-            GD.Print($"DEBUG: Available player overlay keys: {string.Join(", ", playerVisualOverlays.Keys)}");
-            return;
-        }
+            var overlaysList = playerVisualOverlays[localPlayerId];
+            GD.Print($"DEBUG: Found {overlaysList.Count} tracked visual overlays for player {localPlayerId}");
 
-        var overlaysList = playerVisualOverlays[localPlayerId];
-        GD.Print($"DEBUG: Found {overlaysList.Count} visual overlays for player {localPlayerId}");
+            var overlaysToRemove = new List<Control>();
 
-        var overlaysToRemove = new List<Control>();
-
-        foreach (var overlay in overlaysList)
-        {
-            GD.Print($"DEBUG: Checking overlay: {overlay?.Name} (Valid: {overlay != null && IsInstanceValid(overlay)})");
-
-            if (overlay != null && IsInstanceValid(overlay))
+            foreach (var overlay in overlaysList)
             {
-                switch (sabotageType)
+                GD.Print($"DEBUG: Checking tracked overlay: {overlay?.Name} (Valid: {overlay != null && IsInstanceValid(overlay)})");
+
+                if (overlay != null && IsInstanceValid(overlay))
                 {
-                    case SabotageType.EggThrow:
-                        if (overlay.Name == "EggSplat")
-                        {
-                            overlaysToRemove.Add(overlay);
-                            GD.Print($"DEBUG: Marked EggSplat overlay for removal");
-                        }
-                        break;
-                    case SabotageType.StinkBomb:
-                        if (overlay.Name == "StinkFog")
-                        {
-                            overlaysToRemove.Add(overlay);
-                            GD.Print($"DEBUG: Marked StinkFog overlay for removal");
-                        }
-                        break;
+                    switch (sabotageType)
+                    {
+                        case SabotageType.EggThrow:
+                            if (overlay.Name == "EggSplat")
+                            {
+                                overlaysToRemove.Add(overlay);
+                                GD.Print($"DEBUG: Marked tracked EggSplat overlay for removal");
+                            }
+                            break;
+                        case SabotageType.StinkBomb:
+                            if (overlay.Name == "StinkFog")
+                            {
+                                overlaysToRemove.Add(overlay);
+                                GD.Print($"DEBUG: Marked tracked StinkFog overlay for removal");
+                            }
+                            break;
+                    }
                 }
             }
+
+            // Remove the tracked overlays
+            foreach (var overlay in overlaysToRemove)
+            {
+                overlay.QueueFree();
+                playerVisualOverlays[localPlayerId].Remove(overlay);
+                GD.Print($"DEBUG: Removed tracked {overlay.Name} visual overlay");
+            }
+
+            GD.Print($"DEBUG: Tracked cleaning complete. Remaining tracked overlays: {playerVisualOverlays[localPlayerId].Count}");
         }
-
-        GD.Print($"DEBUG: Marked {overlaysToRemove.Count} overlays for removal");
-
-        // Remove the overlays
-        foreach (var overlay in overlaysToRemove)
+        else
         {
-            overlay.QueueFree();
-            playerVisualOverlays[localPlayerId].Remove(overlay);
-            GD.Print($"DEBUG: Removed {overlay.Name} visual overlay");
+            GD.Print("DEBUG: No tracked visual overlays dictionary entry for local player");
+            GD.Print($"DEBUG: Available player overlay keys: {string.Join(", ", playerVisualOverlays.Keys)}");
         }
 
-        GD.Print($"DEBUG: Cleaning complete. Remaining overlays: {playerVisualOverlays[localPlayerId].Count}");
+        // STEP 2: COMPREHENSIVE CLEANUP - Search entire overlay layer for any missed effects
+        GD.Print("DEBUG: Starting comprehensive cleanup - searching entire overlay layer");
+
+        if (overlayLayer != null)
+        {
+            var allChildren = overlayLayer.GetChildren();
+            GD.Print($"DEBUG: Found {allChildren.Count} total children in overlay layer");
+
+            var untracked = new List<Node>();
+
+            foreach (Node child in allChildren)
+            {
+                GD.Print($"DEBUG: Checking overlay layer child: {child?.Name} (Type: {child?.GetType().Name})");
+
+                if (child != null && IsInstanceValid(child))
+                {
+                    switch (sabotageType)
+                    {
+                        case SabotageType.EggThrow:
+                            if (child.Name == "EggSplat")
+                            {
+                                untracked.Add(child);
+                                GD.Print($"DEBUG: Found untracked EggSplat in overlay layer!");
+                            }
+                            break;
+                        case SabotageType.StinkBomb:
+                            if (child.Name == "StinkFog")
+                            {
+                                untracked.Add(child);
+                                GD.Print($"DEBUG: Found untracked StinkFog in overlay layer!");
+                            }
+                            break;
+                    }
+                }
+            }
+
+            // Remove untracked effects
+            GD.Print($"DEBUG: Found {untracked.Count} untracked {sabotageType} effects to remove");
+            foreach (var child in untracked)
+            {
+                child.QueueFree();
+                GD.Print($"DEBUG: Removed untracked {child.Name} from overlay layer");
+            }
+        }
+        else
+        {
+            GD.PrintErr("DEBUG: Overlay layer is null - cannot perform comprehensive cleanup");
+        }
+
+        GD.Print($"DEBUG: COMPREHENSIVE cleaning complete for {sabotageType}!");
     }
 
     public override void _ExitTree()
