@@ -1,8 +1,26 @@
 # AGENT.md - SoreLosers Godot C# Project
 
-## Current Status: ✅ NETWORKING FUNCTIONAL
+## Current Status: ✅ VISUAL EFFECTS & UI FIXES IMPLEMENTED
 **Last Updated**: December 2024  
-**State**: Basic multiplayer card game working with synchronized timers and game state  
+**State**: Multiplayer card game + Complete visual effects system + Enhanced debugging
+
+## Recent Major Updates ✨
+
+### Chat Panel & Visual Effects Implementation
+**Session Completed**: Chat panel growth direction fix + Complete visual sabotage system
+- ✅ **Chat Panel Direction**: Fixed to grow up/left with bottom-right corner anchored
+- ✅ **Visual Egg Effects**: Complete on-screen splat system with 15x scaling
+- ✅ **Metadata Cleanup**: Robust egg effect removal system using metadata tagging
+- ✅ **Debug Button Suite**: 5 debug buttons for comprehensive testing
+- ✅ **Enhanced Logging**: Comprehensive console output for all visual systems
+
+### Debug Testing Capabilities
+**New Debug Buttons Available**:
+1. **"DEBUG: Test Egg Effect"** - Instant egg splat + visual overlay
+2. **"DEBUG: Test Chat Growth"** - Direct 4x chat panel growth
+3. **"DEBUG: Simulate Hand Complete"** - Test existing game flow
+4. **"DEBUG: Shrink Chat"** - Return chat to normal size
+5. **"DEBUG: Clean Egg Effects"** - Remove all visual effects from screen
 
 ## Build/Test/Lint Commands
 - **Build**: `godot --headless --build-solutions --quit`

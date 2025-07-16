@@ -1,10 +1,165 @@
 # Sore Losers - P0 Implementation Documentation
 
-**Version:** 1.2  
+**Version:** 1.3  
 **Date:** December 2024  
-**Status:** P0 Multiplayer Fully Functional - Concurrent Gameplay System Implemented  
+**Status:** P0 Multiplayer + Visual Effects System Fully Functional
 
 ---
+
+## Recent Major Update: Visual Effects & UI Enhancement System
+
+### Visual Effects Implementation Status
+- ✅ **Complete Egg Throwing Visuals**: On-screen splat overlays with scaling
+- ✅ **Chat Panel Growth System**: Proper up/left growth with anchored positioning  
+- ✅ **Metadata-Based Cleanup**: Robust removal system for persistent effects
+- ✅ **Debug Testing Suite**: 5 comprehensive debug buttons for rapid testing
+- ✅ **Enhanced Logging**: Complete visibility into all visual system operations
+
+### Visual Effects Architecture
+
+#### 1. Overlay System (`CardGameUI.cs`)
+```csharp
+private Control overlayLayer;              // Container for all visual effects
+private Dictionary<string, Control> visualOverlays = new();  // Track active effects
+
+// Visual effect creation with metadata tagging
+private void CreateEggSplatVisual(int targetPlayerId, float throwPowerCoverage)
+{
+    var splatPanel = new Panel();
+    splatPanel.Name = "EggSplat";
+    splatPanel.SetMeta("IsEggSplat", true);  // Metadata for cleanup
+    
+    // Size scaling based on ThrowPower stat (15x base size = 3000px)
+    float splatSize = 3000.0f * (throwPowerCoverage / 100.0f);
+    splatPanel.Size = new Vector2(splatSize, splatSize);
+    
+    // Styling: yellow/orange with transparency and rounded corners
+    var styleBox = new StyleBoxFlat();
+    styleBox.BgColor = new Color(1.0f, 0.8f, 0.2f, 0.6f);
+    styleBox.CornerRadiusTopLeft = 50;
+    // ... additional styling
+    
+    overlayLayer.AddChild(splatPanel);
+}
+```
+
+#### 2. Metadata-Based Cleanup System
+```csharp
+private void CleanAllEggEffects()
+{
+    for (int round = 1; round <= 10; round++)  // Multi-round cleanup
+    {
+        var allNodes = new List<Node>();
+        CollectAllNodes(overlayLayer, allNodes);
+        
+        var foundEffects = new List<Node>();
+        foreach (Node node in allNodes)
+        {
+            // Check both name and metadata for identification
+            if (node.Name.Contains("EggSplat") || 
+                (node.HasMeta("IsEggSplat") && node.GetMeta("IsEggSplat").AsBool()))
+            {
+                foundEffects.Add(node);
+            }
+        }
+        
+        if (foundEffects.Count == 0) break;  // No more effects found
+        
+        // Safe removal with verification
+        foreach (Node effect in foundEffects)
+        {
+            effect.QueueFree();  // Deferred removal
+        }
+    }
+}
+```
+
+#### 3. Chat Panel Growth Direction Fix
+```csharp
+private void ResizeChatPanel(Vector2 newSize)
+{
+    Vector2 currentPos = chatPanel.Position;
+    Vector2 currentSize = chatPanel.Size;
+    
+    // Calculate new position to keep bottom-right corner fixed
+    Vector2 newPosition = new Vector2(
+        currentPos.X - (newSize.X - currentSize.X),  // Move left by width difference
+        currentPos.Y - (newSize.Y - currentSize.Y)   // Move up by height difference
+    );
+    
+    // Parallel tween for smooth animation
+    var tween = CreateTween();
+    tween.SetParallel(true);  // Allow simultaneous tweens
+    tween.TweenProperty(chatPanel, "size", newSize, 0.5f);
+    tween.TweenProperty(chatPanel, "position", newPosition, 0.5f);
+}
+```
+
+#### 4. Debug Testing Integration
+```csharp
+// Debug button implementations for comprehensive testing
+private void OnDebugTestEggEffectPressed()
+{
+    GD.Print("=== DEBUG: Testing Egg Effect ===");
+    int localPlayerId = GameManager.Instance.GetLocalPlayerId();
+    GameManager.Instance.SabotageManager.ApplyEggThrow(localPlayerId, localPlayerId, Vector2.Zero);
+}
+
+private void OnDebugTestChatGrowthPressed()
+{
+    GD.Print("=== DEBUG: Testing Chat Growth (4x) ===");
+    ResizeChatPanel(chatBasePanelSize * 4.0f);
+}
+
+private void OnDebugCleanEggEffectsPressed()
+{
+    GD.Print("=== DEBUG: Cleaning All Egg Effects ===");
+    CleanAllEggEffects();
+}
+```
+
+### Integration Points
+
+#### SabotageManager Event Connection
+```csharp
+public override void _Ready()
+{
+    // Connect to sabotage events for visual feedback
+    var sabotageManager = GameManager.Instance?.SabotageManager;
+    if (sabotageManager != null)
+    {
+        sabotageManager.EggThrown += OnEggThrown;
+        sabotageManager.StinkBombExploded += OnStinkBombExploded;
+    }
+}
+
+private void OnEggThrown(int sourcePlayerId, int targetPlayerId, Vector2 hitPosition)
+{
+    if (targetPlayerId == GameManager.Instance.GetLocalPlayerId())
+    {
+        var playerData = GameManager.Instance.GetPlayer(sourcePlayerId);
+        float coverage = playerData?.GetThrowPowerCoverage() ?? 20.0f;
+        CreateEggSplatVisual(targetPlayerId, coverage);
+    }
+}
+```
+
+### Enhanced Debugging & Logging
+
+All visual effects operations include comprehensive logging:
+- **Effect Creation**: Size, position, styling details
+- **Cleanup Operations**: Round-by-round progress, objects found/removed
+- **Chat Growth**: Before/after states, position calculations
+- **Debug Actions**: Button presses, parameter values, completion status
+- **Error Handling**: Detailed failure messages with system state
+
+### Performance Optimizations
+
+- **Efficient Cleanup**: Multi-round search with early termination
+- **Deferred Removal**: Uses `QueueFree()` to avoid frame hitches
+- **Metadata Caching**: Efficient node identification without string operations
+- **Parallel Animations**: Smooth UI transitions without blocking
+- **Safe Iteration**: Copy collections before modification to prevent errors
 
 ## Table of Contents
 

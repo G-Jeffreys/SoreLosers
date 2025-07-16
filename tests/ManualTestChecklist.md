@@ -21,7 +21,147 @@
 - [x] No namespace conflicts
 - [x] Export properties accessible
 
-### System Initialization Tests
+## Visual Effects & UI Testing (NEW SECTION)
+
+### Debug Button Suite Validation
+- [ ] **Debug Button Visibility**: All 5 debug buttons visible in CardGame scene
+- [ ] **Button Placement**: Debug buttons positioned correctly and not overlapping game UI
+- [ ] **Button Responsiveness**: All buttons respond to clicks with immediate feedback
+
+#### Individual Debug Button Tests
+- [ ] **"DEBUG: Test Egg Effect" Button**:
+  1. Click button
+  2. Verify immediate egg splat appears on screen
+  3. Verify console shows "=== DEBUG: Testing Egg Effect ==="
+  4. Verify egg splat is large and visible (3000px base size)
+  5. Verify egg splat has yellow/orange color with transparency
+
+- [ ] **"DEBUG: Test Chat Growth" Button**:
+  1. Note initial chat panel size and position
+  2. Click button
+  3. Verify chat panel grows 4x in size
+  4. Verify chat panel grows up and left (bottom-right corner stays fixed)
+  5. Verify smooth animation during growth
+  6. Verify console shows position calculations and "4x growth applied"
+
+- [ ] **"DEBUG: Simulate Hand Complete" Button**:
+  1. Click button
+  2. Verify existing OnHandCompleted flow is triggered
+  3. Verify console shows hand completion simulation
+  4. Verify any existing chat growth behavior works
+
+- [ ] **"DEBUG: Shrink Chat" Button**:
+  1. Ensure chat is grown (use growth button first)
+  2. Click shrink button
+  3. Verify chat panel returns to normal size
+  4. Verify smooth animation during shrinking
+  5. Verify console shows shrinking action
+
+- [ ] **"DEBUG: Clean Egg Effects" Button**:
+  1. Ensure egg effects are visible (use egg effect button first)
+  2. Click clean button
+  3. Verify ALL egg splats disappear from screen
+  4. Verify console shows cleanup progress with round-by-round details
+  5. Verify console confirms cleanup completion
+
+### Chat Panel Growth System Testing
+- [ ] **Growth Direction Validation**:
+  1. Note chat panel's initial position (record X,Y coordinates)
+  2. Trigger chat growth (using debug button)
+  3. Verify panel grows UP (Y position decreases)
+  4. Verify panel grows LEFT (X position decreases)
+  5. Verify bottom-right corner position remains unchanged
+  6. Verify no part of panel goes off-screen
+
+- [ ] **Animation Quality Testing**:
+  1. Trigger chat growth
+  2. Verify smooth, parallel animation for both size and position
+  3. Verify animation duration is reasonable (~0.5 seconds)
+  4. Verify no visual glitches or jumping during animation
+  5. Verify tween completion is logged in console
+
+- [ ] **Multiple Growth Cycles**:
+  1. Grow chat panel (debug button)
+  2. Shrink chat panel (debug button)
+  3. Grow again
+  4. Verify consistent behavior across multiple cycles
+  5. Verify no position drift or size inconsistencies
+
+### Visual Effects System Testing
+- [ ] **Egg Splat Creation**:
+  1. Use "Test Egg Effect" debug button
+  2. Verify egg splat appears immediately
+  3. Verify splat size is significantly large (should cover substantial screen area)
+  4. Verify splat color is yellow/orange with semi-transparency
+  5. Verify splat has rounded corners
+  6. Verify console logs creation details
+
+- [ ] **Egg Splat Persistence**:
+  1. Create egg splat
+  2. Wait 10 seconds
+  3. Verify splat remains on screen (persistent effect)
+  4. Create second egg splat
+  5. Verify both splats remain visible
+  6. Verify multiple splats can coexist
+
+- [ ] **Metadata Tagging System**:
+  1. Create egg splat
+  2. Verify console shows metadata being set ("IsEggSplat: true")
+  3. Use clean button
+  4. Verify console shows metadata-based detection working
+  5. Verify cleanup finds effects even with auto-generated node names
+
+### Cleanup System Validation
+- [ ] **Single Effect Cleanup**:
+  1. Create one egg splat
+  2. Use clean button
+  3. Verify splat disappears
+  4. Verify console shows "1 effect found and removed"
+  5. Verify cleanup completes in round 1
+
+- [ ] **Multiple Effects Cleanup**:
+  1. Create 3-4 egg splats (multiple clicks of effect button)
+  2. Use clean button
+  3. Verify ALL splats disappear
+  4. Verify console shows multiple effects found
+  5. Verify cleanup may take multiple rounds but completes successfully
+
+- [ ] **Persistent Effect Cleanup**:
+  1. Create egg splat
+  2. Wait for Godot to auto-rename the node (check console for @Panel@ names)
+  3. Use clean button
+  4. Verify effect still gets removed despite name change
+  5. Verify metadata-based detection working
+
+- [ ] **Cleanup Edge Cases**:
+  1. Use clean button when no effects are present
+  2. Verify no errors occur
+  3. Verify console shows "No egg effects found"
+  4. Create effect, clean it, then clean again
+  5. Verify second clean operation handles empty state gracefully
+
+### Integration Testing
+- [ ] **SabotageManager Integration**:
+  1. Verify debug egg effect button triggers SabotageManager.ApplyEggThrow
+  2. Verify visual effect creation happens via event system
+  3. Verify ThrowPower stat affects visual effect size (if testable)
+  4. Verify no conflicts between debug system and game logic
+
+- [ ] **UI State Management**:
+  1. Test debug buttons during different game states
+  2. Verify debug buttons don't interfere with normal game UI
+  3. Verify visual effects don't break other UI elements
+  4. Verify chat growth doesn't affect other UI positioning
+
+### Enhanced Logging Validation
+- [ ] **Console Output Quality**:
+  1. Use each debug button and verify detailed console output
+  2. Verify console shows before/after states for chat growth
+  3. Verify console shows step-by-step cleanup progress
+  4. Verify console shows effect creation details
+  5. Verify all operations are clearly logged with timestamps
+
+## System Initialization Tests
 
 #### GameManager
 - [ ] Singleton instance created
