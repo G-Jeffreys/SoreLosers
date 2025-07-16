@@ -1,0 +1,105 @@
+[gd_scene load_steps=2 format=3 uid="uid://c3j5k8l9m2n6p"]
+
+[ext_resource type="Script" path="res://scripts/RealTimeUI.cs" id="1_3e6hg"]
+
+[node name="RealTime" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("1_3e6hg")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.3, 0.2, 0.1, 1)
+
+[node name="GameArea" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Player" type="CharacterBody2D" parent="GameArea"]
+position = Vector2(500, 300)
+script = ExtResource("1_3e6hg")
+
+[node name="PlayerSprite" type="ColorRect" parent="GameArea/Player"]
+offset_left = -16.0
+offset_top = -16.0
+offset_right = 16.0
+offset_bottom = 16.0
+color = Color(0, 0, 1, 1)
+
+[node name="EggTray" type="StaticBody2D" parent="GameArea"]
+position = Vector2(100, 100)
+
+[node name="EggTraySprite" type="ColorRect" parent="GameArea/EggTray"]
+offset_left = -25.0
+offset_top = -25.0
+offset_right = 25.0
+offset_bottom = 25.0
+color = Color(1, 1, 0, 1)
+
+[node name="EggTrayLabel" type="Label" parent="GameArea/EggTray"]
+offset_left = -30.0
+offset_top = -40.0
+offset_right = 30.0
+offset_bottom = -25.0
+text = "EGGS"
+horizontal_alignment = 1
+
+[node name="Sink" type="StaticBody2D" parent="GameArea"]
+position = Vector2(800, 100)
+
+[node name="SinkSprite" type="ColorRect" parent="GameArea/Sink"]
+offset_left = -25.0
+offset_top = -25.0
+offset_right = 25.0
+offset_bottom = 25.0
+color = Color(0, 1, 1, 1)
+
+[node name="SinkLabel" type="Label" parent="GameArea/Sink"]
+offset_left = -30.0
+offset_top = -40.0
+offset_right = 30.0
+offset_bottom = -25.0
+text = "SINK"
+horizontal_alignment = 1
+
+[node name="UI" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="InventoryLabel" type="Label" parent="UI"]
+layout_mode = 1
+anchors_preset = 0
+offset_left = 20.0
+offset_top = 20.0
+offset_right = 200.0
+offset_bottom = 60.0
+text = "Inventory: Empty"
+vertical_alignment = 1
+
+[node name="InstructionLabel" type="Label" parent="UI"]
+layout_mode = 1
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 20.0
+offset_top = -80.0
+offset_right = 400.0
+offset_bottom = -20.0
+text = "WASD: Move, SPACE: Interact"
+vertical_alignment = 1
+
+[node name="OverlayLayer" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2

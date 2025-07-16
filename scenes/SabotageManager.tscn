@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://s9t0u1v2w3x4"]
+
+[ext_resource type="Script" path="res://scripts/SabotageManager.cs" id="1"]
+
+[node name="SabotageManager" type="Node"]
+script = ExtResource("1")

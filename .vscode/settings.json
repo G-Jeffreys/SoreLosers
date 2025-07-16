@@ -1,0 +1,28 @@
+{
+    "dotnet.defaultSolution": "SoreLosers.sln",
+    "omnisharp.enableEditorConfigSupport": true,
+    "omnisharp.enableRoslynAnalyzers": true,
+    "files.associations": {
+        "*.cs": "csharp",
+        "*.gd": "gdscript",
+        "*.tres": "godot-resource",
+        "*.tscn": "godot-scene"
+    },
+    "files.exclude": {
+        ".godot/": true,
+        ".import/": true,
+        "*.tmp": true
+    },
+    "search.exclude": {
+        ".godot/": true,
+        ".import/": true,
+        "*.tmp": true
+    },
+    "godot_tools.gdscript_lsp_server_host": "127.0.0.1",
+    "godot_tools.gdscript_lsp_server_port": 6005,
+    "godot_tools.editor_path": "/Applications/Godot_mono.app/Contents/MacOS/Godot",
+    "csharp.format.enable": true,
+    "csharp.semanticHighlighting.enabled": true,
+    "editor.formatOnSave": true,
+    "godotTools.editorPath.godot4": "/Applications/Godot_mono.app"
+}
