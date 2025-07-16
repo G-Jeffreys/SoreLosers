@@ -34,7 +34,7 @@ public partial class CardGameUI : Control
 
     // Current player's cards
     private List<Card> currentPlayerCards = new();
-    private List<Button> cardButtons = new();
+    private List<TextureButton> cardButtons = new(); // CHANGED: Now using TextureButton for images
 
     // UI for showing other players' info (now using scene node)
     private VBoxContainer playersInfoContainer;
@@ -47,9 +47,19 @@ public partial class CardGameUI : Control
     private List<string> chatHistory = new();
     private const int MaxChatHistoryLines = 5;
 
+    // Card graphics system - NEW
+    private Dictionary<string, Texture2D> cardTextures = new();
+    private Texture2D cardBackTexture;
+    private readonly Vector2 cardSize = new Vector2(140, 190); // LARGER: Bigger cards that are more readable
+    private readonly string cardAssetsPath = "res://assets/cards/faces/";
+    private readonly string cardBackPath = "res://assets/cards/backs/card_back_blue.png";
+
     public override void _Ready()
     {
         GD.Print("CardGame UI loaded");
+
+        // Load card graphics first
+        LoadCardGraphics();
 
         // Get references to UI views
         cardTableView = GetNode<Control>("CardTableView");
@@ -620,9 +630,25 @@ public partial class CardGameUI : Control
     /// <summary>
     /// Update the player's hand display with actual cards from CardManager
     /// </summary>
-    private void UpdatePlayerHand()
+    private async void UpdatePlayerHand()
     {
         GD.Print("CardGameUI: UpdatePlayerHand called");
+
+        // DEBUG: Log PlayerHand container properties
+        if (playerHand != null)
+        {
+            GD.Print($"DEBUG: PlayerHand container properties:");
+            GD.Print($"DEBUG: - Size: {playerHand.Size}");
+            GD.Print($"DEBUG: - Position: {playerHand.Position}");
+            GD.Print($"DEBUG: - OffsetLeft: {playerHand.OffsetLeft}, OffsetTop: {playerHand.OffsetTop}");
+            GD.Print($"DEBUG: - OffsetRight: {playerHand.OffsetRight}, OffsetBottom: {playerHand.OffsetBottom}");
+            GD.Print($"DEBUG: - AnchorLeft: {playerHand.AnchorLeft}, AnchorTop: {playerHand.AnchorTop}");
+            GD.Print($"DEBUG: - AnchorRight: {playerHand.AnchorRight}, AnchorBottom: {playerHand.AnchorBottom}");
+        }
+        else
+        {
+            GD.PrintErr("DEBUG: PlayerHand container is NULL!");
+        }
 
         if (cardManager == null)
         {
@@ -656,37 +682,76 @@ public partial class CardGameUI : Control
             return;
         }
 
-        // Create UI buttons for each card with two-row layout if needed
+        // FIXED: Use Control container with manual positioning to avoid container constraints
+        var cardContainer = new Control();
+        cardContainer.Name = "ManualCardContainer";
+        // Set to fill the parent container - FIXED for Godot 4.4 API
+        cardContainer.AnchorLeft = 0;
+        cardContainer.AnchorTop = 0;
+        cardContainer.AnchorRight = 1;
+        cardContainer.AnchorBottom = 1;
+        cardContainer.OffsetLeft = 0;
+        cardContainer.OffsetTop = 0;
+        cardContainer.OffsetRight = 0;
+        cardContainer.OffsetBottom = 0;
+        playerHand.AddChild(cardContainer);
+        
+        // Wait one frame for container to get proper size
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        
+        // FIXED: Use PlayerHand container size instead of inner container
+        float cardWidth = cardSize.X;
+        float cardHeight = cardSize.Y;
+        float overlapSpacing = -60; // Tighter overlap - cards overlap by about half for fan effect
+        
+        // Use the PlayerHand container's actual size (which we know has proper dimensions)
+        Vector2 availableSize = playerHand.Size;
+        
+        GD.Print($"DEBUG: Manual positioning setup:");
+        GD.Print($"DEBUG: - Card size: {cardSize}");
+        GD.Print($"DEBUG: - PlayerHand container size: {availableSize}");
+        GD.Print($"DEBUG: - Card container size: {cardContainer.Size}");
+        GD.Print($"DEBUG: - Overlap spacing: {overlapSpacing}");
+        
         if (currentPlayerCards.Count <= 7)
         {
-            // Single row layout for 7 or fewer cards
-            var singleRow = new HBoxContainer();
-            singleRow.Name = "CardRow";
-            playerHand.AddChild(singleRow);
+            // Single row - manually positioned at bottom center
+            float totalWidthNeeded = (currentPlayerCards.Count - 1) * overlapSpacing + cardWidth;
+            float startX = (availableSize.X - totalWidthNeeded) / 2; // Center horizontally
+            float cardY = availableSize.Y - cardHeight - 10; // 10px from bottom
+            
+            GD.Print($"DEBUG: Single row positioning:");
+            GD.Print($"DEBUG: - Total width needed: {totalWidthNeeded}");
+            GD.Print($"DEBUG: - Start X: {startX}, Card Y: {cardY}");
 
             for (int i = 0; i < currentPlayerCards.Count; i++)
             {
                 var card = currentPlayerCards[i];
                 var cardButton = CreateCardButton(card, i);
                 cardButtons.Add(cardButton);
-                singleRow.AddChild(cardButton);
+                
+                // DIRECT POSITION CONTROL - bypassing all container constraints
+                Vector2 cardPos = new Vector2(startX + i * overlapSpacing, cardY);
+                cardButton.Position = cardPos;
+                cardContainer.AddChild(cardButton);
+                
+                GD.Print($"DEBUG: Card {i} ({card}) positioned at: {cardPos}");
             }
 
-            GD.Print($"CardGameUI: Created {cardButtons.Count} card buttons in single row");
+            GD.Print($"CardGameUI: Created {cardButtons.Count} manually positioned cards in single row");
         }
         else
         {
-            // Two-row layout for more than 7 cards
-            var topRow = new HBoxContainer();
-            topRow.Name = "CardRowTop";
-            playerHand.AddChild(topRow);
-
-            var bottomRow = new HBoxContainer();
-            bottomRow.Name = "CardRowBottom";
-            playerHand.AddChild(bottomRow);
-
-            // Distribute cards: first half to top row, second half to bottom row
-            int cardsPerRow = (currentPlayerCards.Count + 1) / 2; // Round up for first row
+            // Two-row layout - manually positioned
+            int cardsPerRow = (currentPlayerCards.Count + 1) / 2;
+            float totalWidthNeeded = (cardsPerRow - 1) * overlapSpacing + cardWidth;
+            float startX = (availableSize.X - totalWidthNeeded) / 2;
+            float topRowY = availableSize.Y - cardHeight * 2 - 20; // Leave space for 2 rows
+            float bottomRowY = availableSize.Y - cardHeight - 10;
+            
+            GD.Print($"DEBUG: Two row positioning:");
+            GD.Print($"DEBUG: - Cards per row: {cardsPerRow}");
+            GD.Print($"DEBUG: - Top row Y: {topRowY}, Bottom row Y: {bottomRowY}");
 
             for (int i = 0; i < currentPlayerCards.Count; i++)
             {
@@ -694,35 +759,188 @@ public partial class CardGameUI : Control
                 var cardButton = CreateCardButton(card, i);
                 cardButtons.Add(cardButton);
 
+                Vector2 cardPos;
                 if (i < cardsPerRow)
                 {
-                    topRow.AddChild(cardButton);
+                    // Top row
+                    cardPos = new Vector2(startX + i * overlapSpacing, topRowY);
                 }
                 else
                 {
-                    bottomRow.AddChild(cardButton);
+                    // Bottom row
+                    int bottomRowIndex = i - cardsPerRow;
+                    cardPos = new Vector2(startX + bottomRowIndex * overlapSpacing, bottomRowY);
                 }
+                
+                cardButton.Position = cardPos;
+                cardContainer.AddChild(cardButton);
+                
+                GD.Print($"DEBUG: Card {i} ({card}) positioned at: {cardPos}");
             }
 
-            GD.Print($"CardGameUI: Created {cardButtons.Count} card buttons in two rows ({cardsPerRow} top, {currentPlayerCards.Count - cardsPerRow} bottom)");
+            GD.Print($"CardGameUI: Created {cardButtons.Count} manually positioned cards in two rows ({cardsPerRow} top, {currentPlayerCards.Count - cardsPerRow} bottom)");
         }
     }
 
     /// <summary>
-    /// Create a button for a specific card
+    /// Load all card graphics into memory for fast access - NEW METHOD
+    /// </summary>
+    private void LoadCardGraphics()
+    {
+        GD.Print("CardGameUI: Loading card graphics...");
+
+        // Load card back texture
+        try
+        {
+            cardBackTexture = GD.Load<Texture2D>(cardBackPath);
+            GD.Print($"CardGameUI: Loaded card back texture from {cardBackPath}");
+        }
+        catch (Exception e)
+        {
+            GD.PrintErr($"CardGameUI: Failed to load card back texture: {e.Message}");
+        }
+
+        // Load all card face textures using the naming convention: [suit]_[rank].png
+        string[] suits = { "clubs", "diamonds", "hearts", "spades" };
+        string[] ranks = { "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "jack", "queen", "king", "ace" };
+
+        int loadedCards = 0;
+        foreach (string suit in suits)
+        {
+            foreach (string rank in ranks)
+            {
+                string filename = $"{suit}_{rank}.png";
+                string fullPath = cardAssetsPath + filename;
+
+                try
+                {
+                    var texture = GD.Load<Texture2D>(fullPath);
+                    if (texture != null)
+                    {
+                        // Create a key based on Card object format for fast lookup
+                        string cardKey = GetCardKey(suit, rank);
+                        cardTextures[cardKey] = texture;
+                        loadedCards++;
+                    }
+                    else
+                    {
+                        GD.PrintErr($"CardGameUI: Failed to load texture for {filename} - texture is null");
+                    }
+                }
+                catch (Exception e)
+                {
+                    GD.PrintErr($"CardGameUI: Failed to load texture for {filename}: {e.Message}");
+                }
+            }
+        }
+
+        GD.Print($"CardGameUI: Successfully loaded {loadedCards}/52 card textures");
+        
+        if (loadedCards < 52)
+        {
+            GD.PrintErr($"CardGameUI: Warning - Only loaded {loadedCards} out of 52 expected card textures!");
+        }
+    }
+
+    /// <summary>
+    /// Generate card key for texture lookup - NEW METHOD
+    /// </summary>
+    private string GetCardKey(string suit, string rank)
+    {
+        // Convert rank names to match Card enum values
+        string cardRank = rank switch
+        {
+            "two" => "Two",
+            "three" => "Three", 
+            "four" => "Four",
+            "five" => "Five",
+            "six" => "Six",
+            "seven" => "Seven",
+            "eight" => "Eight",
+            "nine" => "Nine",
+            "ten" => "Ten",
+            "jack" => "Jack",
+            "queen" => "Queen",
+            "king" => "King",
+            "ace" => "Ace",
+            _ => rank
+        };
+
+        string cardSuit = suit switch
+        {
+            "clubs" => "Clubs",
+            "diamonds" => "Diamonds",
+            "hearts" => "Hearts", 
+            "spades" => "Spades",
+            _ => suit
+        };
+
+        return $"{cardRank} of {cardSuit}";
+    }
+
+    /// <summary>
+    /// Get texture for a specific card - NEW METHOD
+    /// </summary>
+    private Texture2D GetCardTexture(Card card)
+    {
+        string cardKey = card.ToString();
+        
+        if (cardTextures.ContainsKey(cardKey))
+        {
+            return cardTextures[cardKey];
+        }
+        else
+        {
+            GD.PrintErr($"CardGameUI: No texture found for card: {cardKey}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Create a button for a specific card - UPDATED FOR GRAPHICS
     /// </summary>
     /// <param name="card">The card to represent</param>
     /// <param name="index">Index in hand</param>
-    /// <returns>Button representing the card</returns>
-    private Button CreateCardButton(Card card, int index)
+    /// <returns>TextureButton representing the card with actual graphics</returns>
+    private TextureButton CreateCardButton(Card card, int index)
     {
-        var cardButton = new Button();
-        cardButton.Text = card.ToString(); // e.g., "Ace of Spades"
-        cardButton.Size = new Vector2(80, 120);
-        cardButton.AddThemeStyleboxOverride("normal", new StyleBoxFlat());
+        var cardButton = new TextureButton();
+        
+        // Set card texture
+        var cardTexture = GetCardTexture(card);
+        if (cardTexture != null)
+        {
+            cardButton.TextureNormal = cardTexture;
+            cardButton.TexturePressed = cardTexture; // Same texture when pressed
+            cardButton.TextureHover = cardTexture;   // Same texture on hover (could add highlight later)
+            GD.Print($"CardGameUI: Created card button for {card} with texture");
+        }
+        else
+        {
+            // Fallback: Create a simple colored button if texture fails
+            cardButton.TextureNormal = CreateFallbackCardTexture(card);
+            GD.PrintErr($"CardGameUI: Using fallback texture for {card}");
+        }
 
-        // Store card index in button metadata (we'll look up the card from currentPlayerCards)
+        // Set size (scaled up as requested)
+        cardButton.Size = cardSize;
+        cardButton.CustomMinimumSize = cardSize;
+
+        // Configure texture scaling - Simplified for Godot 4.4 API
+        cardButton.IgnoreTextureSize = true; // Allow custom sizing
+
+        // DEBUG: Log the actual card button properties
+        GD.Print($"DEBUG: Created card button for {card}");
+        GD.Print($"DEBUG: - Size set to: {cardSize}");
+        GD.Print($"DEBUG: - Actual Size after creation: {cardButton.Size}");
+        GD.Print($"DEBUG: - CustomMinimumSize: {cardButton.CustomMinimumSize}");
+        GD.Print($"DEBUG: - IgnoreTextureSize: {cardButton.IgnoreTextureSize}");
+
+        // Store card index in button metadata
         cardButton.SetMeta("card_index", index);
+
+        // Add tooltip showing card name
+        cardButton.TooltipText = card.ToString();
 
         // Connect click event
         cardButton.Pressed += () => OnCardClicked(cardButton);
@@ -731,7 +949,31 @@ public partial class CardGameUI : Control
     }
 
     /// <summary>
-    /// Clear all cards from player hand UI
+    /// Create a fallback texture if card graphics fail to load - FIXED for Godot 4.4 API
+    /// </summary>
+    private Texture2D CreateFallbackCardTexture(Card card)
+    {
+        // Create a simple ImageTexture as fallback - FIXED: Use CreateEmpty instead of Create
+        var image = Image.CreateEmpty(140, 190, false, Image.Format.Rgb8);
+        
+        // Color based on suit
+        Color cardColor = card.Suit switch
+        {
+            Suit.Hearts => Colors.Red,
+            Suit.Diamonds => Colors.Red,
+            Suit.Clubs => Colors.Black,
+            Suit.Spades => Colors.Black,
+            _ => Colors.Gray
+        };
+        
+        image.Fill(cardColor);
+        
+        var texture = ImageTexture.CreateFromImage(image);
+        return texture;
+    }
+
+    /// <summary>
+    /// Clear all cards from player hand UI - UPDATED FOR TextureButton
     /// </summary>
     private void ClearPlayerHand()
     {
@@ -748,7 +990,7 @@ public partial class CardGameUI : Control
         }
     }
 
-    private void OnCardClicked(Button cardButton)
+    private void OnCardClicked(TextureButton cardButton) // UPDATED: Parameter type changed
     {
         // Get the card index from button metadata
         if (cardButton.HasMeta("card_index"))
@@ -1117,7 +1359,7 @@ public partial class CardGameUI : Control
     }
 
     /// <summary>
-    /// Enable/disable card button interactions
+    /// Enable/disable card button interactions - UPDATED FOR TextureButton
     /// </summary>
     /// <param name="interactable">Whether cards should be clickable</param>
     private void SetCardsInteractable(bool interactable)
@@ -1138,23 +1380,21 @@ public partial class CardGameUI : Control
 
                 button.Disabled = !isValidCard;
 
-                // Visual feedback for valid/invalid cards
+                // Visual feedback for valid/invalid cards using modulation only
                 if (isValidCard)
                 {
                     button.Modulate = Colors.White; // Normal color for valid cards
-                    button.AddThemeStyleboxOverride("normal", CreateCardStyle(Colors.LightGreen));
+                    // Could add a green tint: button.Modulate = new Color(1.0f, 1.0f, 1.0f, 1.0f);
                 }
                 else
                 {
-                    button.Modulate = Colors.Gray; // Grayed out for invalid cards
-                    button.AddThemeStyleboxOverride("normal", CreateCardStyle(Colors.Gray));
+                    button.Modulate = new Color(0.5f, 0.5f, 0.5f, 1.0f); // Grayed out for invalid cards
                 }
             }
             else
             {
                 button.Disabled = true;
-                button.Modulate = Colors.Gray;
-                button.AddThemeStyleboxOverride("normal", CreateCardStyle(Colors.Gray));
+                button.Modulate = new Color(0.5f, 0.5f, 0.5f, 1.0f); // Grayed out when not interactive
             }
         }
     }
