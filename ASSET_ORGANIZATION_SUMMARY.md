@@ -77,12 +77,18 @@ assets/
 
 ## 🎯 **Asset Integration Guide**
 
-### **Card Loading (CardManager.cs)**
-Cards follow the naming convention: `{suit}_{rank}.png`
+### **Card Loading and Sizing (CardGameUI.cs)**
+Cards follow the naming convention: `{suit}_{rank}.png` and use advanced sizing system:
 ```csharp
 // Example: assets/cards/faces/spades_ace.png
 var cardPath = $"res://assets/cards/faces/{suit}_{rank}.png";
 var cardTexture = GD.Load<Texture2D>(cardPath);
+
+// CRITICAL: Card sizing requires 5-layer enforcement for Godot 4.4
+// Final sizes: 100x140 pixels for both hand and trick cards
+// See docs/CARD_SIZING_TECHNICAL_GUIDE.md for complete implementation
+private readonly Vector2 cardSize = new Vector2(100, 140);
+private readonly Vector2 trickCardSize = new Vector2(100, 140);
 ```
 
 ### **Sabotage Effects (SabotageManager.cs)**
