@@ -50,7 +50,8 @@ public partial class CardGameUI : Control
     // Card graphics system - NEW
     private Dictionary<string, Texture2D> cardTextures = new();
     private Texture2D cardBackTexture;
-    private readonly Vector2 cardSize = new Vector2(140, 190); // LARGER: Bigger cards that are more readable
+    private readonly Vector2 cardSize = new Vector2(100, 140); // PERFECT SIZE: Both hand and trick cards use same readable size
+    private readonly Vector2 trickCardSize = new Vector2(100, 140); // TRICK CARDS: Same size as hand cards for consistency
     private readonly string cardAssetsPath = "res://assets/cards/faces/";
     private readonly string cardBackPath = "res://assets/cards/backs/card_back_blue.png";
 
@@ -70,6 +71,13 @@ public partial class CardGameUI : Control
         scoreLabel = GetNode<Label>("CardTableView/GameArea/ScoreTimerPanel/ScoreLabel");
         playerHand = GetNode<VBoxContainer>("CardTableView/GameArea/PlayerHand");
         trickArea = GetNode<Control>("CardTableView/GameArea/CenterArea/TrickArea");
+        
+        // Configure trick area to not clip contents (allow cards to extend beyond bounds)
+        if (trickArea != null)
+        {
+            trickArea.ClipContents = false;
+            GD.Print($"DEBUG: Trick area configured - Size: {trickArea.Size}, ClipContents: {trickArea.ClipContents}");
+        }
         chatPanel = GetNode<Panel>("ChatPanel");
         chatLabel = GetNode<Label>("ChatPanel/ChatVBox/ChatLabel");
         chatInput = GetNode<LineEdit>("ChatPanel/ChatVBox/ChatInput");
@@ -161,7 +169,7 @@ public partial class CardGameUI : Control
     }
 
     /// <summary>
-    /// Update the trick area to show cards played in current trick
+    /// Update the trick area to show cards played in current trick with actual card graphics
     /// </summary>
     private void UpdateTrickDisplay()
     {
@@ -178,17 +186,48 @@ public partial class CardGameUI : Control
             }
         }
 
-        // Add cards from current trick
-        for (int i = 0; i < gameState.CurrentTrick.Count; i++)
+        // Add actual card graphics for current trick
+        if (gameState.CurrentTrick.Count > 0)
         {
-            var cardPlay = gameState.CurrentTrick[i];
-            var cardLabel = new Label();
-            cardLabel.Name = $"TrickCard_{i}";
-            cardLabel.Text = $"P{cardPlay.PlayerId}: {cardPlay.Card}";
-            cardLabel.Position = new Vector2(i * 60, i * 20);
-            cardLabel.Size = new Vector2(150, 30);
-            cardLabel.AddThemeStyleboxOverride("normal", CreateCardStyle(Colors.White));
-            trickArea.AddChild(cardLabel);
+            GD.Print($"DEBUG: Displaying {gameState.CurrentTrick.Count} trick cards in center area");
+            
+            // Calculate positioning for trick cards in center area
+            // TrickArea is 200x100, cards are 100x140, so we'll arrange them clearly separated
+            float cardWidth = trickCardSize.X;
+            float cardHeight = trickCardSize.Y;
+            float overlapSpacing = 20; // TRICK CARDS: No overlap - clear separation between cards (20px gap)
+            
+            // Calculate total width needed and center position
+            float totalWidthNeeded = (gameState.CurrentTrick.Count - 1) * overlapSpacing + cardWidth;
+            Vector2 trickAreaSize = trickArea.Size; // Should be 200x100
+            float startX = (trickAreaSize.X - totalWidthNeeded) / 2; // Center horizontally
+            float cardY = (trickAreaSize.Y - cardHeight) / 2; // Center vertically (cards may extend above/below)
+            
+            GD.Print($"DEBUG: Trick area size: {trickAreaSize}");
+            GD.Print($"DEBUG: Trick cards positioning - Start X: {startX}, Card Y: {cardY}");
+            GD.Print($"DEBUG: Total width needed: {totalWidthNeeded}, Card spacing: {overlapSpacing} (positive = gap, negative = overlap)");
+
+            for (int i = 0; i < gameState.CurrentTrick.Count; i++)
+            {
+                var cardPlay = gameState.CurrentTrick[i];
+                var cardButton = CreateTrickCardButton(cardPlay.Card, cardPlay.PlayerId);
+                cardButton.Name = $"TrickCard_{i}";
+                
+                // Position cards in a compact fan arrangement
+                Vector2 cardPos = new Vector2(startX + i * overlapSpacing, cardY);
+                cardButton.Position = cardPos;
+                
+                trickArea.AddChild(cardButton);
+                
+                // Force size after adding to scene tree (same as hand cards)
+                cardButton.Size = trickCardSize;
+                cardButton.CustomMinimumSize = trickCardSize;
+                cardButton.CallDeferred(Control.MethodName.SetSize, trickCardSize);
+                
+                GD.Print($"DEBUG: Trick card {i} ({cardPlay.Card} by P{cardPlay.PlayerId}) positioned at: {cardPos}");
+            }
+
+            GD.Print($"CardGameUI: Displayed {gameState.CurrentTrick.Count} trick cards with actual graphics");
         }
     }
 
@@ -694,6 +733,8 @@ public partial class CardGameUI : Control
         cardContainer.OffsetTop = 0;
         cardContainer.OffsetRight = 0;
         cardContainer.OffsetBottom = 0;
+        // CRITICAL: Don't clip contents - allows cards to be larger than container bounds
+        cardContainer.ClipContents = false;
         playerHand.AddChild(cardContainer);
         
         // Wait one frame for container to get proper size
@@ -702,7 +743,7 @@ public partial class CardGameUI : Control
         // FIXED: Use PlayerHand container size instead of inner container
         float cardWidth = cardSize.X;
         float cardHeight = cardSize.Y;
-        float overlapSpacing = -60; // Tighter overlap - cards overlap by about half for fan effect
+        float overlapSpacing = -50; // HAND CARDS: Overlap nicely for compact fan effect (50% overlap for 100px wide cards)
         
         // Use the PlayerHand container's actual size (which we know has proper dimensions)
         Vector2 availableSize = playerHand.Size;
@@ -711,14 +752,14 @@ public partial class CardGameUI : Control
         GD.Print($"DEBUG: - Card size: {cardSize}");
         GD.Print($"DEBUG: - PlayerHand container size: {availableSize}");
         GD.Print($"DEBUG: - Card container size: {cardContainer.Size}");
-        GD.Print($"DEBUG: - Overlap spacing: {overlapSpacing}");
+        GD.Print($"DEBUG: - Hand card spacing: {overlapSpacing} (negative = overlap for fan effect)");
         
         if (currentPlayerCards.Count <= 7)
         {
             // Single row - manually positioned at bottom center
             float totalWidthNeeded = (currentPlayerCards.Count - 1) * overlapSpacing + cardWidth;
             float startX = (availableSize.X - totalWidthNeeded) / 2; // Center horizontally
-            float cardY = availableSize.Y - cardHeight - 10; // 10px from bottom
+            float cardY = availableSize.Y - cardHeight - 10; // ADJUSTED: Appropriate margin for 100x140 cards
             
             GD.Print($"DEBUG: Single row positioning:");
             GD.Print($"DEBUG: - Total width needed: {totalWidthNeeded}");
@@ -735,7 +776,15 @@ public partial class CardGameUI : Control
                 cardButton.Position = cardPos;
                 cardContainer.AddChild(cardButton);
                 
+                // FORCE SIZE AFTER ADDING TO SCENE TREE - prevents container from overriding size
+                cardButton.Size = cardSize;
+                cardButton.CustomMinimumSize = cardSize;
+                
+                // FINAL ENFORCEMENT: Set size again after next frame processing
+                cardButton.CallDeferred(Control.MethodName.SetSize, cardSize);
+                
                 GD.Print($"DEBUG: Card {i} ({card}) positioned at: {cardPos}");
+                GD.Print($"DEBUG: Card {i} final size after adding to scene: {cardButton.Size}");
             }
 
             GD.Print($"CardGameUI: Created {cardButtons.Count} manually positioned cards in single row");
@@ -746,8 +795,8 @@ public partial class CardGameUI : Control
             int cardsPerRow = (currentPlayerCards.Count + 1) / 2;
             float totalWidthNeeded = (cardsPerRow - 1) * overlapSpacing + cardWidth;
             float startX = (availableSize.X - totalWidthNeeded) / 2;
-            float topRowY = availableSize.Y - cardHeight * 2 - 20; // Leave space for 2 rows
-            float bottomRowY = availableSize.Y - cardHeight - 10;
+            float topRowY = availableSize.Y - cardHeight * 2 - 20; // ADJUSTED: Appropriate space between rows for 100x140 cards
+            float bottomRowY = availableSize.Y - cardHeight - 10; // ADJUSTED: Appropriate margin for 100x140 cards
             
             GD.Print($"DEBUG: Two row positioning:");
             GD.Print($"DEBUG: - Cards per row: {cardsPerRow}");
@@ -775,7 +824,15 @@ public partial class CardGameUI : Control
                 cardButton.Position = cardPos;
                 cardContainer.AddChild(cardButton);
                 
+                // FORCE SIZE AFTER ADDING TO SCENE TREE - prevents container from overriding size
+                cardButton.Size = cardSize;
+                cardButton.CustomMinimumSize = cardSize;
+                
+                // FINAL ENFORCEMENT: Set size again after next frame processing
+                cardButton.CallDeferred(Control.MethodName.SetSize, cardSize);
+                
                 GD.Print($"DEBUG: Card {i} ({card}) positioned at: {cardPos}");
+                GD.Print($"DEBUG: Card {i} final size after adding to scene: {cardButton.Size}");
             }
 
             GD.Print($"CardGameUI: Created {cardButtons.Count} manually positioned cards in two rows ({cardsPerRow} top, {currentPlayerCards.Count - cardsPerRow} bottom)");
@@ -922,12 +979,13 @@ public partial class CardGameUI : Control
             GD.PrintErr($"CardGameUI: Using fallback texture for {card}");
         }
 
-        // Set size (scaled up as requested)
+        // Configure texture scaling FIRST - Critical for Godot 4.4 TextureButton sizing
+        cardButton.IgnoreTextureSize = true; // Allow custom sizing
+        cardButton.StretchMode = TextureButton.StretchModeEnum.KeepAspectCentered; // Scale texture to fit button size while maintaining aspect ratio
+
+        // Set size (scaled up as requested) - AFTER configuring texture scaling
         cardButton.Size = cardSize;
         cardButton.CustomMinimumSize = cardSize;
-
-        // Configure texture scaling - Simplified for Godot 4.4 API
-        cardButton.IgnoreTextureSize = true; // Allow custom sizing
 
         // DEBUG: Log the actual card button properties
         GD.Print($"DEBUG: Created card button for {card}");
@@ -935,6 +993,7 @@ public partial class CardGameUI : Control
         GD.Print($"DEBUG: - Actual Size after creation: {cardButton.Size}");
         GD.Print($"DEBUG: - CustomMinimumSize: {cardButton.CustomMinimumSize}");
         GD.Print($"DEBUG: - IgnoreTextureSize: {cardButton.IgnoreTextureSize}");
+        GD.Print($"DEBUG: - StretchMode: {cardButton.StretchMode}");
 
         // Store card index in button metadata
         cardButton.SetMeta("card_index", index);
@@ -949,12 +1008,64 @@ public partial class CardGameUI : Control
     }
 
     /// <summary>
+    /// Create a display-only card button for trick area - OPTIMIZED FOR TRICKS
+    /// </summary>
+    /// <param name="card">The card to represent</param>
+    /// <param name="playerId">Player who played this card</param>
+    /// <returns>TextureButton representing the card for display only</returns>
+    private TextureButton CreateTrickCardButton(Card card, int playerId)
+    {
+        var cardButton = new TextureButton();
+        
+        // Configure as display-only button
+        cardButton.Disabled = true; // No clicking needed for trick cards
+        cardButton.MouseFilter = Control.MouseFilterEnum.Ignore; // Don't interfere with other UI
+        
+        // Set card texture
+        var cardTexture = GetCardTexture(card);
+        if (cardTexture != null)
+        {
+            cardButton.TextureNormal = cardTexture;
+            cardButton.TextureDisabled = cardTexture; // Show texture even when disabled
+            GD.Print($"CardGameUI: Created trick card button for {card} by player {playerId}");
+        }
+        else
+        {
+            // Fallback: Create a simple colored button if texture fails
+            cardButton.TextureNormal = CreateFallbackCardTexture(card, trickCardSize);
+            cardButton.TextureDisabled = CreateFallbackCardTexture(card, trickCardSize);
+            GD.PrintErr($"CardGameUI: Using fallback texture for trick card {card}");
+        }
+
+        // Configure texture scaling for trick cards
+        cardButton.IgnoreTextureSize = true;
+        cardButton.StretchMode = TextureButton.StretchModeEnum.KeepAspectCentered;
+
+        // Set smaller size for trick area
+        cardButton.Size = trickCardSize;
+        cardButton.CustomMinimumSize = trickCardSize;
+
+        // Add tooltip showing card and player info
+        cardButton.TooltipText = $"Player {playerId}: {card}";
+
+        GD.Print($"DEBUG: Created trick card button for {card} (Player {playerId})");
+        GD.Print($"DEBUG: - Trick card size: {trickCardSize}");
+        GD.Print($"DEBUG: - Disabled: {cardButton.Disabled}");
+        GD.Print($"DEBUG: - MouseFilter: {cardButton.MouseFilter}");
+
+        return cardButton;
+    }
+
+    /// <summary>
     /// Create a fallback texture if card graphics fail to load - FIXED for Godot 4.4 API
     /// </summary>
-    private Texture2D CreateFallbackCardTexture(Card card)
+    private Texture2D CreateFallbackCardTexture(Card card, Vector2? customSize = null)
     {
+        // Use custom size if provided, otherwise use default card size
+        Vector2 textureSize = customSize ?? cardSize;
+        
         // Create a simple ImageTexture as fallback - FIXED: Use CreateEmpty instead of Create
-        var image = Image.CreateEmpty(140, 190, false, Image.Format.Rgb8);
+        var image = Image.CreateEmpty((int)textureSize.X, (int)textureSize.Y, false, Image.Format.Rgb8);
         
         // Color based on suit
         Color cardColor = card.Suit switch
