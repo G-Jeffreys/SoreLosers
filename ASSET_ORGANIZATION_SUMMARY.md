@@ -38,7 +38,7 @@ assets/
 │   ├── egg_splat_small.png         # ✅ 20% coverage (ThrowPower Level 1)
 │   ├── egg_splat_medium.png        # ✅ 50% coverage (ThrowPower Level 5)
 │   ├── egg_splat_large.png         # ✅ 80% coverage (ThrowPower Level 10)
-│   └── egg_splat_extra.png         # ✅ INTEGRATED - Active egg splat graphics in visual effects
+│   └── Raw_egg_splatter_on_...-1106652873-0.png  # ✅ INTEGRATED - Active egg splat graphics in visual effects
 ├── environment/                    # Game world assets
 │   ├── room/                       # Room backgrounds
 │   │   ├── background.png          # ✅ INTEGRATED - Active kitchen background with vertical-fit scaling

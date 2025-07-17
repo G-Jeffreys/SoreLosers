@@ -91,7 +91,7 @@ The game should be easy to pick up in one session, run on modest hardware, and s
 Both sabotages use a common `ObstructionOverlay` node and share inventory logic.
 
 **✅ Implementation Status (December 2024)**: The egg throwing visual effects system has been **fully implemented** with enhanced features:
-- **Complete Visual Overlays**: Realistic PNG graphics using `egg_splat_extra.png` asset
+- **Complete Visual Overlays**: Realistic PNG graphics using `Raw_egg_splatter` PNG asset
 - **Enhanced Scaling**: 15x base size (3000px) for maximum visual impact  
 - **ThrowPower Integration**: Size scales from 20% to 80% screen coverage based on player stats
 - **Robust Cleanup**: Metadata-based removal system for reliable effect clearing

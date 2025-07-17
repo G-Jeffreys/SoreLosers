@@ -54,7 +54,7 @@ private Dictionary<string, Control> visualOverlays = new();  // Track active eff
 private void CreateEggSplatVisual(int targetPlayerId, float throwPowerCoverage)
 {
     // Load realistic egg splat texture
-    var splatTexture = GD.Load<Texture2D>("res://assets/sabotage/egg_splat_extra.png");
+    var splatTexture = GD.Load<Texture2D>("res://assets/sabotage/Raw_egg_splatter_on_...-1106652873-0.png");
     var splatTextureRect = new TextureRect();
     splatTextureRect.Name = "EggSplat";
     splatTextureRect.SetMeta("IsEggSplat", true);  // Metadata for cleanup
@@ -67,7 +67,8 @@ private void CreateEggSplatVisual(int targetPlayerId, float throwPowerCoverage)
     // Texture rendering configuration
     splatTextureRect.ExpandMode = TextureRect.ExpandModeEnum.FitWidthProportional;
     splatTextureRect.StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered;
-    splatTextureRect.Modulate = new Color(1.0f, 1.0f, 1.0f, 0.8f);  // Transparency
+    splatTextureRect.Modulate = new Color(1.0f, 1.0f, 1.0f, 0.95f);  // Minimal transparency
+    splatTextureRect.MouseFilter = Control.MouseFilterEnum.Ignore;  // Click-through enabled
     
     overlayLayer.AddChild(splatTextureRect);
 }

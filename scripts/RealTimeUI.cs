@@ -115,7 +115,7 @@ public partial class RealTimeUI : Control
     public void CreateEggSplat(Vector2 position)
     {
         // Load the egg splat texture asset
-        var splatTexture = GD.Load<Texture2D>("res://assets/sabotage/egg_splat_extra.png");
+        var splatTexture = GD.Load<Texture2D>("res://assets/sabotage/Raw_egg_splatter_on_...-1106652873-0.png");
 
         if (splatTexture != null)
         {
@@ -126,7 +126,8 @@ public partial class RealTimeUI : Control
             splat.Position = position - splat.Size / 2;
             splat.ExpandMode = TextureRect.ExpandModeEnum.FitWidthProportional;
             splat.StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered;
-            splat.Modulate = new Color(1.0f, 1.0f, 1.0f, 0.7f); // Transparency
+            splat.Modulate = new Color(1.0f, 1.0f, 1.0f, 0.95f); // Minimal transparency
+            splat.MouseFilter = Control.MouseFilterEnum.Ignore; // Allow click-through
             overlayLayer.AddChild(splat);
             GD.Print($"Created egg splat texture at {position}");
         }
@@ -135,9 +136,10 @@ public partial class RealTimeUI : Control
             // Fallback to colored rectangle if texture fails to load
             var splat = new ColorRect();
             splat.Name = "EggSplat";
-            splat.Color = new Color(1, 1, 0, 0.7f);
+            splat.Color = new Color(1, 1, 0, 0.95f); // Less transparent fallback
             splat.Size = new Vector2(100, 100);
             splat.Position = position - splat.Size / 2;
+            splat.MouseFilter = Control.MouseFilterEnum.Ignore; // Allow click-through
             overlayLayer.AddChild(splat);
             GD.Print($"Created fallback egg splat rectangle at {position} (texture failed to load)");
         }

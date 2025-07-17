@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://btxckuhww72b0"
-path="res://.godot/imported/player_avatar_7.png-e4e2b2cd6be8caa3050ad27a42afdc6f.ctex"
+uid="uid://dogv60mjjmqli"
+path="res://.godot/imported/Homogenous_cloud_of_...-543408979-0-2.png-5395c4ab5fbbdf82ed345f259348d35a.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/environment/players/player_avatar_7.png"
-dest_files=["res://.godot/imported/player_avatar_7.png-e4e2b2cd6be8caa3050ad27a42afdc6f.ctex"]
+source_file="res://assets/sabotage/Homogenous_cloud_of_...-543408979-0-2.png"
+dest_files=["res://.godot/imported/Homogenous_cloud_of_...-543408979-0-2.png-5395c4ab5fbbdf82ed345f259348d35a.ctex"]
 
 [params]
 

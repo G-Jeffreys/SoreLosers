@@ -4,6 +4,150 @@
 
 ---
 
+## 🎯 Latest Session: Egg Effect Transparency & Click-Through Enhancement
+**Session Focus**: Reduced Egg Transparency + Enabled Button Click-Through
+
+### Overview
+This session focused on improving the egg splat visual effects by making them less transparent for better visual impact and enabling click-through functionality so players can interact with buttons underneath the egg effects, similar to the chat panel.
+
+---
+
+## 🥚 Egg Effect User Experience Enhancement
+
+### 1. Reduced Transparency for Better Visual Impact
+**Purpose**: Make egg splat effects more visually prominent and impactful
+**Files Changed**:
+- `scripts/CardGameUI.cs`
+- `scripts/RealTimeUI.cs`
+
+**Changes Made**:
+- **Reduced transparency** from 80% opacity to 95% opacity (0.8f → 0.95f alpha)
+- **Enhanced visibility** of Raw_egg_splatter PNG asset  
+- **Consistent opacity** across main game and testing environments
+- **Applied to all variants**: TextureRect, fallback Panel, and ColorRect implementations
+
+**Technical Implementation**:
+```csharp
+// Main egg splat (before: 0.8f alpha, after: 0.95f alpha)
+splatTextureRect.Modulate = new Color(1.0f, 1.0f, 1.0f, 0.95f); // Minimal transparency
+
+// Fallback panel (before: 0.7f alpha, after: 0.95f alpha)  
+styleBox.BgColor = new Color(1.0f, 0.8f, 0.2f, 0.95f); // Less transparent fallback
+
+// Testing ColorRect (before: 0.7f alpha, after: 0.95f alpha)
+splat.Color = new Color(1, 1, 0, 0.95f); // Less transparent fallback
+```
+
+### 2. Click-Through Functionality for UI Interaction
+**Purpose**: Allow players to interact with buttons underneath egg effects
+**Files Changed**:
+- `scripts/CardGameUI.cs`
+- `scripts/RealTimeUI.cs`
+
+**Changes Made**:
+- **Added MouseFilter.Ignore** to all egg splat elements
+- **Enabled click-through** similar to chat panel and overlay layer
+- **Preserved visual obstruction** while maintaining UI functionality
+- **Applied consistently** across all egg splat implementations
+
+**Technical Implementation**:
+```csharp
+// Enable click-through for all egg splat elements
+splatTextureRect.MouseFilter = Control.MouseFilterEnum.Ignore; // Allow clicking buttons underneath
+fallbackPanel.MouseFilter = Control.MouseFilterEnum.Ignore; // Allow click-through
+splat.MouseFilter = Control.MouseFilterEnum.Ignore; // Allow click-through
+```
+
+### 3. Enhanced User Experience Benefits
+**Visual Improvements**:
+- **More Prominent Effects**: 95% opacity makes egg splats more visually impactful
+- **Better Asset Visibility**: Raw_egg_splatter PNG details more clearly visible
+- **Consistent Appearance**: Same opacity across all contexts and fallbacks
+
+**Interaction Improvements**:
+- **Maintained UI Functionality**: Players can click buttons underneath egg effects
+- **No Gameplay Hindrance**: Sabotage creates visual obstruction without breaking UI
+- **Strategic Balance**: Effects are visually disruptive but don't prevent interaction
+- **Chat Panel Consistency**: Same click-through behavior as existing UI elements
+
+---
+
+## 📊 Success Metrics
+
+- ✅ **Enhanced Visual Impact**: More prominent egg effects with 95% opacity
+- ✅ **Preserved UI Functionality**: All buttons remain clickable underneath effects
+- ✅ **Consistent Implementation**: Same behavior across main game and testing
+- ✅ **Strategic Balance**: Visual obstruction without gameplay hindrance
+- ✅ **Technical Consistency**: Same click-through approach as overlay layer
+
+**Result**: Egg splat effects now provide maximum visual impact while maintaining full UI functionality, creating the perfect balance between sabotage disruption and playability.
+
+---
+
+## 🎯 Latest Session: Egg Splat Asset Update
+**Session Focus**: Updated Egg Visual Effect to Use Raw_egg_splatter PNG
+
+### Overview
+This session focused on updating the egg splat visual effect to use the more realistic Raw_egg_splatter PNG asset instead of the previous egg_splat_extra.png, providing enhanced visual fidelity for the sabotage system.
+
+---
+
+## 🥚 Egg Splat Asset Enhancement
+
+### 1. Raw_egg_splatter PNG Integration
+**Purpose**: Replace egg_splat_extra.png with more realistic Raw_egg_splatter asset
+**Files Changed**:
+- `scripts/CardGameUI.cs`
+- `scripts/RealTimeUI.cs`
+
+**Changes Made**:
+- **Updated** texture loading from `egg_splat_extra.png` to `Raw_egg_splatter_on_...-1106652873-0.png`
+- **Enhanced** visual realism with authentic egg splatter appearance
+- **Maintained** all existing functionality including scaling, positioning, and cleanup
+- **Preserved** fallback system for graceful degradation if asset fails to load
+
+**Technical Implementation**:
+```csharp
+// Updated egg splat texture loading
+var splatTexture = GD.Load<Texture2D>("res://assets/sabotage/Raw_egg_splatter_on_...-1106652873-0.png");
+// Fallback error message updated for new asset
+GD.PrintErr("DEBUG: Failed to load Raw_egg_splatter PNG - falling back to colored rectangle");
+```
+
+### 2. Visual Enhancement Benefits
+**Enhanced Realism**: Raw_egg_splatter provides more authentic splatter patterns and textures
+**Maintained Functionality**: All existing features preserved:
+- ThrowPower-based scaling (20% to 80% coverage)
+- 15x enlarged size (3000px base) for maximum visual impact
+- Metadata tracking for reliable cleanup
+- Transparency and positioning systems
+- Robust fallback mechanisms
+
+### 3. Documentation Updates
+**Updated Files**:
+- `CHANGELOG_2024_12.md` - Asset change documentation
+- `docs/p0_implementation.md` - Updated code examples
+- `docs/prd.md` - Updated implementation status
+- `ASSET_ORGANIZATION_SUMMARY.md` - Asset integration tracking
+- `docs/DOCUMENTATION_UPDATE_SUMMARY.md` - Process documentation
+
+**Asset Integration Status**:
+- **Raw_egg_splatter PNG**: ✅ INTEGRATED - Active egg splat graphics in visual effects
+- **Enhanced Visual Quality**: More realistic splatter patterns and authentic appearance
+
+---
+
+## 📊 Success Metrics
+
+- ✅ **Enhanced Visual Realism**: More authentic egg splatter appearance
+- ✅ **Maintained Functionality**: All existing scaling and cleanup systems preserved
+- ✅ **Seamless Integration**: No impact on game performance or mechanics
+- ✅ **Documentation Complete**: All technical documentation updated
+
+**Result**: Egg splat visual effects now use the Raw_egg_splatter PNG asset for enhanced realism while maintaining all existing functionality.
+
+---
+
 ## 🎯 Latest Session: Kitchen Background Scaling & UI Enhancement
 **Session Focus**: Vertical-Fit Background Scaling + Invisible Interactables + UI Cleanup
 
@@ -239,7 +383,7 @@ stretch_mode = 6
 
 #### CardGameUI.cs (Main Implementation)
 - **Replaced** `Panel` with `TextureRect` for egg splat display
-- **Loads** `egg_splat_extra.png` from `assets/sabotage/` directory
+- **Loads** `Raw_egg_splatter` PNG from `assets/sabotage/` directory
 - **Preserves** all existing functionality:
   - ThrowPower-based scaling (20% to 80% coverage)
   - 15x enlarged size (3000px base)
@@ -250,21 +394,22 @@ stretch_mode = 6
 
 #### RealTimeUI.cs (Simple Implementation)  
 - **Replaced** `ColorRect` with `TextureRect` for consistent graphics
-- **Uses** same `egg_splat_extra.png` asset
+- **Uses** same `Raw_egg_splatter` PNG asset
 - **Maintains** 100x100 size and transparency
 - **Includes** fallback to yellow ColorRect if texture fails to load
 
 **Technical Implementation**:
 ```csharp
 // Load the egg splat texture asset
-var splatTexture = GD.Load<Texture2D>("res://assets/sabotage/egg_splat_extra.png");
+var splatTexture = GD.Load<Texture2D>("res://assets/sabotage/Raw_egg_splatter_on_...-1106652873-0.png");
 if (splatTexture != null)
 {
     var splatTextureRect = new TextureRect();
     splatTextureRect.Texture = splatTexture;
     splatTextureRect.ExpandMode = TextureRect.ExpandModeEnum.FitWidthProportional;
     splatTextureRect.StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered;
-    splatTextureRect.Modulate = new Color(1.0f, 1.0f, 1.0f, 0.8f);
+    splatTextureRect.Modulate = new Color(1.0f, 1.0f, 1.0f, 0.95f);
+splatTextureRect.MouseFilter = Control.MouseFilterEnum.Ignore;
     // ... sizing and positioning code
 }
 ```
@@ -305,7 +450,7 @@ Kitchen View System:
 └── Player Movement (unchanged)
 
 Egg Splat System:
-├── Asset Loading (egg_splat_extra.png)
+├── Asset Loading (Raw_egg_splatter PNG)
 ├── TextureRect Creation
 ├── Size Scaling (ThrowPower-based)
 ├── Position Calculation

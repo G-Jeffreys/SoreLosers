@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cmo87px63tw26"
-path="res://.godot/imported/player_1_avatar.png-5fdb3809e18426b90500410ca9dce76a.ctex"
+uid="uid://yq0yevrulq1e"
+path="res://.godot/imported/Raw_egg_splatter_on_...-1106652873-0-2.png-05730c2508a3162179f6fbf1e2f6544c.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/environment/players/player_1_avatar.png"
-dest_files=["res://.godot/imported/player_1_avatar.png-5fdb3809e18426b90500410ca9dce76a.ctex"]
+source_file="res://assets/sabotage/Raw_egg_splatter_on_...-1106652873-0-2.png"
+dest_files=["res://.godot/imported/Raw_egg_splatter_on_...-1106652873-0-2.png-05730c2508a3162179f6fbf1e2f6544c.ctex"]
 
 [params]
 

@@ -162,7 +162,7 @@ The documentation updates reflect the successful implementation of:
 ### 2. **docs/p0_implementation.md - VISUAL EFFECTS UPDATES**
 
 #### Implementation Status Enhancement:
-- **Updated**: "Complete Egg Throwing Visuals" from "overlays with scaling" to "Realistic PNG graphics using egg_splat_extra.png"
+- **Updated**: "Complete Egg Throwing Visuals" from "overlays with scaling" to "Realistic PNG graphics using Raw_egg_splatter PNG"
 - **Added**: "Kitchen Background Integration" as new implemented feature
 - **Enhanced**: Visual Effects Architecture code examples updated to show TextureRect usage
 
@@ -173,7 +173,7 @@ var splatPanel = new Panel();
 var styleBox = new StyleBoxFlat();
 
 // NEW: TextureRect-based system  
-var splatTexture = GD.Load<Texture2D>("res://assets/sabotage/egg_splat_extra.png");
+var splatTexture = GD.Load<Texture2D>("res://assets/sabotage/Raw_egg_splatter_on_...-1106652873-0.png");
 var splatTextureRect = new TextureRect();
 splatTextureRect.Texture = splatTexture;
 ```
@@ -182,7 +182,7 @@ splatTextureRect.Texture = splatTexture;
 
 #### Asset Status Updates:
 - **background.png**: Updated from "Kitchen scene variant" to "✅ INTEGRATED - Active kitchen background in CardGame scene"
-- **egg_splat_extra.png**: Updated from "Alternative/backup design" to "✅ INTEGRATED - Active egg splat graphics in visual effects"
+- **Raw_egg_splatter PNG**: Updated to "✅ INTEGRATED - Active egg splat graphics in visual effects"
 
 #### Integration Tracking:
 - Clear distinction between available assets vs. actively integrated assets

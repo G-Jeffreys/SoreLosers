@@ -478,10 +478,10 @@ public partial class Player : CharacterBody2D
         // Apply egg effect to target player
         if (GameManager.Instance.SabotageManager != null && PlayerData != null)
         {
-            // Use a dummy target position since we're targeting a player, not a location
-            Vector2 targetPosition = Vector2.Zero;
+            // Calculate random position using 3x2 grid system (6 sections total)
+            Vector2 targetPosition = CalculateRandomGridPosition();
             GameManager.Instance.SabotageManager.ApplyEggThrow(PlayerData.PlayerId, activePlayerId, targetPosition);
-            GD.Print($"Player: Applied egg throw effect from player {PlayerData.PlayerId} to player {activePlayerId}");
+            GD.Print($"Player: Applied egg throw effect from player {PlayerData.PlayerId} to player {activePlayerId} at position {targetPosition}");
         }
 
         // Emit signals for tracking
@@ -588,6 +588,45 @@ public partial class Player : CharacterBody2D
                 GD.Print("Player: Stink bomb fog effect applied");
                 break;
         }
+    }
+
+    /// <summary>
+    /// Calculate a random position based on 3x2 grid system (6 sections total)
+    /// Each egg throw randomly selects one of the 6 sections and centers the splat there
+    /// </summary>
+    /// <returns>Random position centered in one of the 6 grid sections</returns>
+    private Vector2 CalculateRandomGridPosition()
+    {
+        // Get screen/viewport size
+        var viewport = GetViewport();
+        if (viewport == null)
+        {
+            GD.PrintErr("Player: Cannot get viewport for random position calculation");
+            return new Vector2(640, 360); // Default fallback position
+        }
+
+        Vector2 screenSize = viewport.GetVisibleRect().Size;
+
+        // Divide screen into 3x2 grid (3 columns, 2 rows = 6 sections total)
+        float sectionWidth = screenSize.X / 3.0f;
+        float sectionHeight = screenSize.Y / 2.0f;
+
+        // Randomly select one of the 6 sections (0-5)
+        int randomSection = GD.RandRange(0, 5);
+
+        // Calculate grid coordinates (column, row)
+        int column = randomSection % 3;  // 0, 1, or 2
+        int row = randomSection / 3;     // 0 or 1
+
+        // Calculate center position of the selected section
+        float centerX = (column + 0.5f) * sectionWidth;
+        float centerY = (row + 0.5f) * sectionHeight;
+
+        Vector2 randomPosition = new Vector2(centerX, centerY);
+
+        GD.Print($"Player: Random egg position - Section {randomSection} (col:{column}, row:{row}) = {randomPosition}");
+
+        return randomPosition;
     }
 
     public override void _ExitTree()

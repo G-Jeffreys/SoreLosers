@@ -502,7 +502,7 @@ public partial class CardGameUI : Control
         int localPlayerId = gameManager.LocalPlayer.PlayerId;
 
         // Apply egg effect to local player for testing - use local player as both source AND target
-        Vector2 testPosition = new Vector2(400, 300); // Use specific position for testing
+        Vector2 testPosition = CalculateRandomGridPosition(); // Use random grid position for testing
         gameManager.SabotageManager.ApplyEggThrow(localPlayerId, localPlayerId, testPosition); // This will create the visual via event system
 
         GD.Print($"DEBUG: Applied egg throwing effect from player {localPlayerId} to player {localPlayerId} for testing");
@@ -1639,10 +1639,10 @@ public partial class CardGameUI : Control
         GD.Print($"DEBUG: Created TextureRect with name '{splatTextureRect.Name}' and EggSplat metadata");
 
         // Load the egg splat texture asset
-        var splatTexture = GD.Load<Texture2D>("res://assets/sabotage/egg_splat_extra.png");
+        var splatTexture = GD.Load<Texture2D>("res://assets/sabotage/Raw_egg_splatter_on_...-1106652873-0.png");
         if (splatTexture == null)
         {
-            GD.PrintErr("DEBUG: Failed to load egg_splat_extra.png - falling back to colored rectangle");
+            GD.PrintErr("DEBUG: Failed to load Raw_egg_splatter PNG - falling back to colored rectangle");
             // Fallback to colored rectangle if texture fails to load
             var fallbackPanel = new Panel();
             fallbackPanel.Name = "EggSplat";
@@ -1652,14 +1652,14 @@ public partial class CardGameUI : Control
             float fallbackSize = 3000.0f * coverage;
             fallbackPanel.Size = new Vector2(fallbackSize, fallbackSize);
             Vector2 fallbackPosition = position == Vector2.Zero ?
-                new Vector2(GetViewport().GetVisibleRect().Size.X * 0.5f - fallbackSize * 0.5f,
-                           GetViewport().GetVisibleRect().Size.Y * 0.5f - fallbackSize * 0.5f) :
+                CalculateRandomGridPosition() - new Vector2(fallbackSize, fallbackSize) * 0.5f :
                 position - new Vector2(fallbackSize, fallbackSize) * 0.5f;
             fallbackPanel.Position = fallbackPosition;
 
             var styleBox = new StyleBoxFlat();
-            styleBox.BgColor = new Color(1.0f, 0.8f, 0.2f, 0.7f);
+            styleBox.BgColor = new Color(1.0f, 0.8f, 0.2f, 0.95f); // Less transparent fallback
             fallbackPanel.AddThemeStyleboxOverride("panel", styleBox);
+            fallbackPanel.MouseFilter = Control.MouseFilterEnum.Ignore; // Allow click-through
             overlayLayer.AddChild(fallbackPanel);
             return;
         }
@@ -1671,10 +1671,9 @@ public partial class CardGameUI : Control
         Vector2 splatSize = new Vector2(baseSize * coverage, baseSize * coverage);
         splatTextureRect.Size = splatSize;
 
-        // Position randomly around screen center if no specific position given
+        // Position randomly in one of 6 grid sections if no specific position given
         Vector2 splatPosition = position == Vector2.Zero ?
-            new Vector2(GetViewport().GetVisibleRect().Size.X * 0.5f - splatSize.X * 0.5f,
-                       GetViewport().GetVisibleRect().Size.Y * 0.5f - splatSize.Y * 0.5f) :
+            CalculateRandomGridPosition() - splatSize * 0.5f :
             position - splatSize * 0.5f;
 
         splatTextureRect.Position = splatPosition;
@@ -1683,8 +1682,9 @@ public partial class CardGameUI : Control
         splatTextureRect.ExpandMode = TextureRect.ExpandModeEnum.FitWidthProportional;
         splatTextureRect.StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered;
 
-        // Add semi-transparency to the entire TextureRect
-        splatTextureRect.Modulate = new Color(1.0f, 1.0f, 1.0f, 0.8f); // Slight transparency
+        // Make egg splat less transparent and allow click-through
+        splatTextureRect.Modulate = new Color(1.0f, 1.0f, 1.0f, 0.95f); // Minimal transparency
+        splatTextureRect.MouseFilter = Control.MouseFilterEnum.Ignore; // Allow clicking buttons underneath
 
         // Add to overlay layer
         overlayLayer.AddChild(splatTextureRect);
@@ -1983,6 +1983,45 @@ public partial class CardGameUI : Control
             cardManager.TrickCompleted -= OnTrickCompleted;
             cardManager.HandCompleted -= OnHandCompleted;
         }
+    }
+
+    /// <summary>
+    /// Calculate a random position based on 3x2 grid system (6 sections total)
+    /// Each egg throw randomly selects one of the 6 sections and centers the splat there
+    /// </summary>
+    /// <returns>Random position centered in one of the 6 grid sections</returns>
+    private Vector2 CalculateRandomGridPosition()
+    {
+        // Get screen/viewport size
+        var viewport = GetViewport();
+        if (viewport == null)
+        {
+            GD.PrintErr("CardGameUI: Cannot get viewport for random position calculation");
+            return new Vector2(640, 360); // Default fallback position
+        }
+
+        Vector2 screenSize = viewport.GetVisibleRect().Size;
+
+        // Divide screen into 3x2 grid (3 columns, 2 rows = 6 sections total)
+        float sectionWidth = screenSize.X / 3.0f;
+        float sectionHeight = screenSize.Y / 2.0f;
+
+        // Randomly select one of the 6 sections (0-5)
+        int randomSection = GD.RandRange(0, 5);
+
+        // Calculate grid coordinates (column, row)
+        int column = randomSection % 3;  // 0, 1, or 2
+        int row = randomSection / 3;     // 0 or 1
+
+        // Calculate center position of the selected section
+        float centerX = (column + 0.5f) * sectionWidth;
+        float centerY = (row + 0.5f) * sectionHeight;
+
+        Vector2 randomPosition = new Vector2(centerX, centerY);
+
+        GD.Print($"CardGameUI: Random egg position - Section {randomSection} (col:{column}, row:{row}) = {randomPosition}");
+
+        return randomPosition;
     }
 }
 
