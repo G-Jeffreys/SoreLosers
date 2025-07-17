@@ -41,7 +41,7 @@ assets/
 │   └── egg_splat_extra.png         # ✅ INTEGRATED - Active egg splat graphics in visual effects
 ├── environment/                    # Game world assets
 │   ├── room/                       # Room backgrounds
-│   │   ├── background.png          # ✅ INTEGRATED - Active kitchen background in CardGame scene
+│   │   ├── background.png          # ✅ INTEGRATED - Active kitchen background with vertical-fit scaling
 │   │   ├── room_background_1.png   # ✅ Kitchen scene variant 1
 │   │   └── room_background_2.png   # ✅ Kitchen scene variant 2
 │   ├── furniture/                  # Furniture and props
@@ -113,8 +113,9 @@ var gameplayMusic = GD.Load<AudioStream>("res://assets/audio/music/gameplay_back
 
 ### **Environment Assets**
 ```csharp
-// Room background
-var roomBG = GD.Load<Texture2D>("res://assets/environment/room/room_background_1.png");
+// Room background with vertical-fit scaling for optimal display
+var roomBG = GD.Load<Texture2D>("res://assets/environment/room/background.png");
+// Configured with expand_mode = 2 (FitHeightProportional) for full kitchen visibility
 
 // Player avatars
 var playerSprite = GD.Load<Texture2D>("res://assets/environment/players/player_avatar_1.png");

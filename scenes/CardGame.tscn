@@ -144,11 +144,11 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 texture = ExtResource("3_background")
-expand_mode = 1
-stretch_mode = 6
+expand_mode = 2
+stretch_mode = 5
 
 [node name="Player" type="CharacterBody2D" parent="KitchenView"]
-position = Vector2(500, 300)
+position = Vector2(640, 480)
 script = ExtResource("2_player")
 
 [node name="PlayerSprite" type="ColorRect" parent="KitchenView/Player"]
@@ -162,80 +162,81 @@ color = Color(0, 0, 1, 1)
 shape = SubResource("RectangleShape2D_1")
 
 [node name="EggTray" type="StaticBody2D" parent="KitchenView"]
-position = Vector2(150, 150)
+position = Vector2(380, 320)
 
 [node name="EggTraySprite" type="ColorRect" parent="KitchenView/EggTray"]
+layout_mode = 0
 offset_left = -25.0
 offset_top = -25.0
 offset_right = 25.0
 offset_bottom = 25.0
 color = Color(1, 1, 0, 1)
+visible = false
 
 [node name="EggTrayLabel" type="Label" parent="KitchenView/EggTray"]
+layout_mode = 0
 offset_left = -30.0
 offset_top = -40.0
 offset_right = 30.0
 offset_bottom = -25.0
 text = "EGGS"
 horizontal_alignment = 1
+visible = false
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="KitchenView/EggTray"]
 shape = SubResource("RectangleShape2D_2")
 
 [node name="Sink" type="StaticBody2D" parent="KitchenView"]
-position = Vector2(900, 150)
+position = Vector2(870, 220)
 
 [node name="SinkSprite" type="ColorRect" parent="KitchenView/Sink"]
+layout_mode = 0
 offset_left = -25.0
 offset_top = -25.0
 offset_right = 25.0
 offset_bottom = 25.0
 color = Color(0, 1, 1, 1)
+visible = false
 
 [node name="SinkLabel" type="Label" parent="KitchenView/Sink"]
+layout_mode = 0
 offset_left = -30.0
 offset_top = -40.0
 offset_right = 30.0
 offset_bottom = -25.0
 text = "SINK"
 horizontal_alignment = 1
+visible = false
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="KitchenView/Sink"]
 shape = SubResource("RectangleShape2D_3")
 
 [node name="CardTable" type="StaticBody2D" parent="KitchenView"]
-position = Vector2(600, 400)
+position = Vector2(640, 410)
 
 [node name="TableSprite" type="ColorRect" parent="KitchenView/CardTable"]
+layout_mode = 0
 offset_left = -60.0
 offset_top = -40.0
 offset_right = 60.0
 offset_bottom = 40.0
 color = Color(0.6, 0.3, 0.1, 1)
+visible = false
 
 [node name="TableLabel" type="Label" parent="KitchenView/CardTable"]
+layout_mode = 0
 offset_left = -50.0
 offset_top = -55.0
 offset_right = 50.0
 offset_bottom = -40.0
 text = "CARD TABLE"
 horizontal_alignment = 1
+visible = false
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="KitchenView/CardTable"]
 shape = SubResource("RectangleShape2D_4")
 
-[node name="ReturnTableButton" type="Button" parent="KitchenView"]
-layout_mode = 1
-anchors_preset = 1
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -130.0
-offset_top = 20.0
-offset_right = -20.0
-offset_bottom = 60.0
-grow_horizontal = 0
-text = "Return to Table"
-visible = false
+
 
 [node name="KitchenUI" type="Control" parent="KitchenView"]
 layout_mode = 1
@@ -363,7 +364,7 @@ placeholder_text = "Type message..."
 
 [connection signal="resized" from="ChatPanel" to="." method="_on_chat_panel_resized"]
 [connection signal="pressed" from="CardTableView/GameArea/LeaveTableButton" to="." method="_on_leave_table_button_pressed"]
-[connection signal="pressed" from="KitchenView/ReturnTableButton" to="." method="_on_return_table_button_pressed"]
+
 [connection signal="text_submitted" from="ChatPanel/ChatVBox/ChatInput" to="." method="_on_chat_input_text_submitted"]
 [connection signal="pressed" from="PlayersInfoPanel/DebugEggButton" to="." method="_on_debug_egg_button_pressed"]
 [connection signal="pressed" from="PlayersInfoPanel/DebugChatGrowthButton" to="." method="_on_debug_chat_growth_button_pressed"]

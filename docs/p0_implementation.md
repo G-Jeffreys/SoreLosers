@@ -1,20 +1,47 @@
 # Sore Losers - P0 Implementation Documentation
 
-**Version:** 1.3  
+**Version:** 1.4  
 **Date:** December 2024  
-**Status:** P0 Multiplayer + Visual Effects System Fully Functional
+**Status:** P0 Multiplayer + Visual Effects + UI Enhancement System Fully Functional
 
 ---
 
-## Recent Major Update: Visual Effects & UI Enhancement System
+## Recent Major Update: Kitchen Background Scaling & UI Enhancement System
 
-### Visual Effects Implementation Status
-- ✅ **Complete Egg Throwing Visuals**: Realistic PNG graphics using `egg_splat_extra.png` asset
-- ✅ **Chat Panel Growth System**: Proper up/left growth with anchored positioning  
-- ✅ **Metadata-Based Cleanup**: Robust removal system for persistent effects
-- ✅ **Debug Testing Suite**: 5 comprehensive debug buttons for rapid testing
-- ✅ **Enhanced Logging**: Complete visibility into all visual system operations
-- ✅ **Kitchen Background Integration**: Authentic environment using `background.png` with aligned elements
+### Kitchen Background & Interface Implementation Status
+- ✅ **Vertical-Fit Background Scaling**: Optimal kitchen display showing full vertical layout
+- ✅ **Invisible Interactables System**: Clean immersive environment without visual debug elements  
+- ✅ **Precise Element Positioning**: Perfect alignment with background features after scaling change
+- ✅ **Streamlined UI Design**: Removed redundant buttons for cleaner player experience
+- ✅ **Enhanced Kitchen Environment**: Professional-quality kitchen with natural interaction design
+
+### Kitchen Background Scaling Architecture
+
+#### 1. Optimal Display System (`scenes/CardGame.tscn`)
+```gdscript
+[node name="KitchenBackground" type="TextureRect" parent="KitchenView"]
+texture = ExtResource("3_background")
+expand_mode = 2      # FitHeightProportional - shows full kitchen height
+stretch_mode = 5     # KeepAspectCentered - maintains proper proportions
+
+// Interactive elements positioned for vertical-fit scaling:
+// EggTray: (380, 320) - aligned with refrigerator
+// Sink: (870, 220) - aligned with sink fixture  
+// CardTable: (640, 410) - centered on background table
+// Player: (640, 480) - positioned below table
+```
+
+#### 2. Invisible Interactables System (`scenes/CardGame.tscn`)
+```gdscript
+// All interactable sprites and labels set to invisible
+[node name="EggTraySprite" type="ColorRect" parent="KitchenView/EggTray"]
+visible = false    # Hidden visual, collision remains active
+
+[node name="EggTrayLabel" type="Label" parent="KitchenView/EggTray"]  
+visible = false    # Hidden debug text
+
+// Result: Clean kitchen environment with preserved functionality
+```
 
 ### Visual Effects Architecture
 
@@ -698,18 +725,18 @@ bool hasEffect = sabotageManager.HasSabotageEffect(playerId, SabotageType.EggThr
 #### Core Responsibilities
 - UI state management across game phases
 - Chat intimidation system (PRD F4 requirement)
-- **Dual-view system (Card Table vs Kitchen) - NEW**
-- **Leave/Return Table button management - NEW**
-- **Location-based UI transitions - NEW**
+- **Dual-view system (Card Table vs Kitchen) - ENHANCED**
+- **Streamlined location management - UPDATED**
+- **Location-based UI transitions - ENHANCED**
+- **Invisible interactables system - NEW**
 - Sabotage overlay management
 - Menu and HUD coordination
 
-#### Dual-View System (NEW)
+#### Dual-View System (ENHANCED)
 ```csharp
 private Node cardTableView;     // Card game interface
 private Node kitchenView;       // Real-time movement interface
-private Button leaveTableBtn;   // Always visible when AtTable
-private Button returnTableBtn;  // Always visible when InKitchen
+private Button leaveTableBtn;   // Visible when AtTable
 
 private void ShowView(GameManager.PlayerLocation location)
 {
@@ -721,7 +748,7 @@ private void ShowView(GameManager.PlayerLocation location)
 }
 ```
 
-#### Location Management Buttons (NEW)
+#### Streamlined Location Management (UPDATED)
 ```csharp
 private void OnLeaveTablePressed()
 {
@@ -729,17 +756,23 @@ private void OnLeaveTablePressed()
     GameManager.Instance.PlayerLeaveTable(localPlayerId);
 }
 
-private void OnReturnToTablePressed()
-{
-    GD.Print("Return to Table button pressed");
-    GameManager.Instance.PlayerReturnToTable(localPlayerId);
-}
+// Return to table handled via direct table interaction (SPACE key)
+// No return button needed - players interact with invisible table interactable
 
 private void UpdateLocationButtons(GameManager.PlayerLocation location)
 {
     leaveTableBtn.Visible = (location == GameManager.PlayerLocation.AtTable);
-    returnTableBtn.Visible = (location == GameManager.PlayerLocation.InKitchen);
+    // Kitchen phase: No buttons, direct environmental interaction
 }
+```
+
+#### Invisible Interactables System (NEW)
+```csharp
+// All kitchen interactables are invisible but fully functional
+// EggTray: (380, 320) - refrigerator interaction
+// Sink: (870, 220) - washing interaction  
+// CardTable: (640, 410) - return to table interaction
+// Collision detection preserved, visual clutter eliminated
 ```
 
 #### Chat Intimidation System

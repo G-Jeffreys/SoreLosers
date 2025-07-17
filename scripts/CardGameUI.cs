@@ -22,7 +22,6 @@ public partial class CardGameUI : Control
     // Kitchen UI elements
     private CharacterBody2D player;
     private Label inventoryLabel;
-    private Button returnTableButton;
 
     // Reference to game systems
     private CardManager cardManager;
@@ -90,7 +89,6 @@ public partial class CardGameUI : Control
         // Get references to kitchen UI elements
         player = GetNode<CharacterBody2D>("KitchenView/Player");
         inventoryLabel = GetNode<Label>("KitchenView/KitchenUI/InventoryLabel");
-        returnTableButton = GetNode<Button>("KitchenView/ReturnTableButton");
 
         // Get players info panel
         playersInfoContainer = GetNode<VBoxContainer>("PlayersInfoPanel");
@@ -458,17 +456,7 @@ public partial class CardGameUI : Control
         }
     }
 
-    /// <summary>
-    /// Handle return table button pressed (now connected via scene)
-    /// </summary>
-    private void _on_return_table_button_pressed()
-    {
-        GD.Print("Return to Table button pressed");
-        if (gameManager?.LocalPlayer != null)
-        {
-            gameManager.PlayerReturnToTable(gameManager.LocalPlayer.PlayerId);
-        }
-    }
+
 
     /// <summary>
     /// Handle chat input text submitted
@@ -698,16 +686,12 @@ public partial class CardGameUI : Control
         {
             case GameManager.PlayerLocation.AtTable:
                 leaveTableButton.Disabled = false;
-                returnTableButton.Disabled = true;
                 leaveTableButton.Visible = true;
-                returnTableButton.Visible = false;
                 break;
 
             case GameManager.PlayerLocation.InKitchen:
                 leaveTableButton.Disabled = true;
-                returnTableButton.Disabled = false;
                 leaveTableButton.Visible = false;
-                returnTableButton.Visible = true;
                 break;
         }
     }
