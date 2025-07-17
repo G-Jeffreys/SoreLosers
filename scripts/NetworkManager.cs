@@ -54,8 +54,6 @@ public partial class NetworkManager : Node
 
     public override void _Ready()
     {
-        GD.Print("NetworkManager: Initializing network manager...");
-
         // Initialize multiplayer API properly
         multiplayerApi = GetTree().GetMultiplayer();
         if (multiplayerApi == null)
@@ -70,8 +68,6 @@ public partial class NetworkManager : Node
         multiplayerApi.ConnectedToServer += OnConnectedToServer;
         multiplayerApi.ConnectionFailed += OnConnectionFailed;
         multiplayerApi.ServerDisconnected += OnServerDisconnected;
-
-        GD.Print("NetworkManager: Network manager initialized successfully");
     }
 
     /// <summary>
@@ -80,8 +76,6 @@ public partial class NetworkManager : Node
     /// <returns>6-digit room code for other players to join</returns>
     public string StartHosting()
     {
-        GD.Print("NetworkManager: Starting to host game...");
-
         // Ensure multiplayer API is ready
         if (multiplayerApi == null)
         {
@@ -97,16 +91,12 @@ public partial class NetworkManager : Node
         var peer = new ENetMultiplayerPeer();
         Error error = Error.Failed;
 
-        GD.Print("NetworkManager: Initializing ENet multiplayer peer...");
-
         // Try to initialize ENet more explicitly
         try
         {
             // Try ports starting from DefaultPort
             for (int port = DefaultPort; port < DefaultPort + 10; port++)
             {
-                GD.Print($"NetworkManager: Attempting to create server on port {port}...");
-
                 // Create a fresh peer for each attempt to avoid state issues
                 peer = new ENetMultiplayerPeer();
 
@@ -116,12 +106,11 @@ public partial class NetworkManager : Node
                 if (error == Error.Ok)
                 {
                     currentServerPort = port;
-                    GD.Print($"NetworkManager: Server created successfully on port {port}");
+                    GD.Print($"NetworkManager: Server created on port {port}");
                     break;
                 }
                 else
                 {
-                    GD.Print($"NetworkManager: Port {port} failed with error: {error}");
                     peer?.Close(); // Clean up failed peer
                 }
             }
@@ -144,14 +133,20 @@ public partial class NetworkManager : Node
 
         // Set the multiplayer peer directly on the tree's multiplayer
         multiplayerApi.MultiplayerPeer = peer;
-        GD.Print($"NetworkManager: Host multiplayer peer set successfully");
+
+        // CRITICAL FIX: Set up multiplayer authority for host
+        int hostId = multiplayerApi.GetUniqueId();
+        
+        // Set host as authority for CardManager and other critical nodes
+        SetupMultiplayerAuthority(hostId);
 
         // Update state
         IsHost = true;
         IsConnected = true;
+        
+        GD.Print($"NetworkManager: HOST STATUS SET - IsHost: {IsHost}, IsClient: {IsClient}, IsConnected: {IsConnected}");
 
         // Add host to connected players
-        int hostId = multiplayerApi.GetUniqueId();
         ConnectedPlayers[hostId] = new PlayerNetworkData
         {
             PlayerId = hostId,
@@ -162,7 +157,6 @@ public partial class NetworkManager : Node
         // Update GameManager's local player with the network ID
         if (GameManager.Instance?.LocalPlayer != null)
         {
-            GD.Print($"NetworkManager: Host assigned network player ID: {hostId}");
             int oldId = GameManager.Instance.LocalPlayer.PlayerId;
 
             // Update the local player with the network-assigned ID
@@ -174,16 +168,10 @@ public partial class NetworkManager : Node
             {
                 GameManager.Instance.ConnectedPlayers.Remove(oldId);
                 GameManager.Instance.AddPlayer(hostId, GameManager.Instance.LocalPlayer);
-                GD.Print($"NetworkManager: Updated player ID from {oldId} to {hostId}");
-            }
-            else
-            {
-                GD.Print($"NetworkManager: Player ID unchanged ({hostId}), no need to re-add");
             }
         }
 
-        GD.Print($"NetworkManager: Hosting started successfully with room code: {CurrentRoomCode}");
-        GD.Print($"NetworkManager: Host ID: {hostId}, Port: {currentServerPort}");
+        GD.Print($"NetworkManager: Hosting started - Room code: {CurrentRoomCode}, Host ID: {hostId}, Port: {currentServerPort}");
 
         EmitSignal(SignalName.ServerStarted, CurrentRoomCode);
         return CurrentRoomCode;
@@ -195,8 +183,6 @@ public partial class NetworkManager : Node
     /// <param name="roomCode">6-digit room code</param>
     public void ConnectToGame(string roomCode)
     {
-        GD.Print($"NetworkManager: Connecting to game with room code: {roomCode}");
-
         // Ensure multiplayer API is ready
         if (multiplayerApi == null)
         {
@@ -231,12 +217,12 @@ public partial class NetworkManager : Node
 
         // Set the multiplayer peer directly on the tree's multiplayer
         multiplayerApi.MultiplayerPeer = peer;
-        GD.Print($"NetworkManager: Client multiplayer peer set successfully");
 
         // Update state
         IsClient = true;
 
-        GD.Print($"NetworkManager: Connection attempt initiated to {hostAddress}:{DefaultPort}");
+        GD.Print($"NetworkManager: CLIENT CONNECTION STARTED - IsHost: {IsHost}, IsClient: {IsClient}, IsConnected: {IsConnected}");
+        GD.Print($"NetworkManager: Connecting to {hostAddress}:{DefaultPort} with room code {roomCode}");
     }
 
     /// <summary>
@@ -247,8 +233,6 @@ public partial class NetworkManager : Node
     {
         var random = new Random();
         int code = random.Next(100000, 999999);
-
-        GD.Print($"NetworkManager: Generated room code: {code}");
         return code.ToString();
     }
 
@@ -257,8 +241,6 @@ public partial class NetworkManager : Node
     /// </summary>
     public void Disconnect()
     {
-        GD.Print("NetworkManager: Disconnecting from game...");
-
         // Close multiplayer connection
         if (multiplayerApi.MultiplayerPeer != null)
         {
@@ -272,8 +254,6 @@ public partial class NetworkManager : Node
         IsConnected = false;
         CurrentRoomCode = "";
         ConnectedPlayers.Clear();
-
-        GD.Print("NetworkManager: Disconnected successfully");
     }
 
     /// <summary>
@@ -283,8 +263,6 @@ public partial class NetworkManager : Node
     [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
     public void SendPlayerData(PlayerData playerData)
     {
-        GD.Print($"NetworkManager: Sending player data for {playerData.PlayerName}");
-
         // Send player data as primitive values to avoid serialization issues
         Rpc(MethodName.ReceivePlayerData,
             playerData.PlayerId,
@@ -299,8 +277,6 @@ public partial class NetworkManager : Node
     [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
     public void ReceivePlayerData(int playerId, string playerName)
     {
-        GD.Print($"NetworkManager: Received player data for {playerName} (ID: {playerId})");
-
         // Update connected players
         if (ConnectedPlayers.ContainsKey(playerId))
         {
@@ -321,14 +297,111 @@ public partial class NetworkManager : Node
     }
 
     /// <summary>
+    /// Send complete player list (including AI players) from host to all clients
+    /// CRITICAL FIX: Ensures all instances have identical player lists
+    /// </summary>
+    /// <param name="playerIds">Array of all player IDs in the game</param>
+    /// <param name="playerNames">Array of corresponding player names</param>
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    public void NetworkSyncPlayers(int[] playerIds, string[] playerNames)
+    {
+        if (playerIds.Length != playerNames.Length)
+        {
+            GD.PrintErr($"NetworkManager: Player sync arrays mismatch - IDs: {playerIds.Length}, Names: {playerNames.Length}");
+            return;
+        }
+
+        GD.Print($"NetworkManager: CLIENT received player sync with {playerIds.Length} players from host");
+        for (int i = 0; i < playerIds.Length; i++)
+        {
+            GD.Print($"  - Incoming Player {playerIds[i]}: {playerNames[i]}");
+        }
+
+        // Clear existing players except local player (to avoid removing ourselves)
+        var localPlayerId = GameManager.Instance?.LocalPlayer?.PlayerId ?? -1;
+        var playersToRemove = new List<int>();
+        
+        GD.Print($"NetworkManager: CLIENT local player ID is {localPlayerId}");
+        
+        if (GameManager.Instance?.ConnectedPlayers != null)
+        {
+            GD.Print($"NetworkManager: CLIENT existing players before sync:");
+            foreach (var existingPlayerId in GameManager.Instance.ConnectedPlayers.Keys)
+            {
+                var playerName = GameManager.Instance.ConnectedPlayers[existingPlayerId].PlayerName;
+                var isLocal = existingPlayerId == localPlayerId;
+                GD.Print($"  - Existing Player {existingPlayerId}: {playerName} (Local: {isLocal})");
+                
+                if (existingPlayerId != localPlayerId)
+                {
+                    playersToRemove.Add(existingPlayerId);
+                }
+            }
+        }
+
+        foreach (var playerId in playersToRemove)
+        {
+            GD.Print($"NetworkManager: CLIENT removing non-local player {playerId}");
+            GameManager.Instance?.RemovePlayer(playerId);
+        }
+
+        // Add all synchronized players
+        for (int i = 0; i < playerIds.Length; i++)
+        {
+            int playerId = playerIds[i];
+            string playerName = playerNames[i];
+
+            // Skip if this is our local player (already exists)
+            if (playerId == localPlayerId)
+            {
+                GD.Print($"NetworkManager: CLIENT skipping local player {playerId}");
+                continue;
+            }
+
+            // Create PlayerData for this synchronized player
+            var playerData = new PlayerData
+            {
+                PlayerId = playerId,
+                PlayerName = playerName,
+                ThrowPower = 1,
+                MoveSpeed = 1,
+                Composure = 1,
+                TotalXP = 0
+            };
+
+            // Add to GameManager
+            GameManager.Instance?.AddPlayer(playerId, playerData);
+
+            // Update NetworkManager's connected players list
+            ConnectedPlayers[playerId] = new PlayerNetworkData
+            {
+                PlayerId = playerId,
+                PlayerName = playerName,
+                IsHost = false // Only the actual host is marked as host
+            };
+
+            GD.Print($"NetworkManager: CLIENT synchronized player {playerName} (ID: {playerId})");
+        }
+
+        // CRITICAL DEBUG: Log final state
+        GD.Print($"NetworkManager: CLIENT player synchronization complete - {GameManager.Instance?.ConnectedPlayers.Count} total players:");
+        if (GameManager.Instance?.ConnectedPlayers != null)
+        {
+            foreach (var kvp in GameManager.Instance.ConnectedPlayers)
+            {
+                var isLocal = kvp.Key == localPlayerId;
+                GD.Print($"  - Final Player {kvp.Key}: {kvp.Value.PlayerName} (Local: {isLocal})");
+            }
+        }
+    }
+
+    /// <summary>
     /// Send chat message to all players
     /// </summary>
     /// <param name="message">Chat message to send</param>
     [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = true, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
     public void SendChatMessage(string message)
     {
-        GD.Print($"NetworkManager: Sending chat message: {message}");
-
         // TODO: Implement chat message handling
         // This would integrate with the chat intimidation system
     }
@@ -342,8 +415,6 @@ public partial class NetworkManager : Node
     [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
     public void SendSabotageAction(int sourcePlayerId, SabotageType sabotageType, Vector2 targetPosition)
     {
-        GD.Print($"NetworkManager: Sending sabotage action: {sabotageType} from player {sourcePlayerId}");
-
         // TODO: Implement sabotage synchronization
         // This would trigger sabotage effects on all clients
     }
@@ -356,8 +427,6 @@ public partial class NetworkManager : Node
     [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
     public void SendCardPlay(int playerId, int cardId)
     {
-        GD.Print($"NetworkManager: Sending card play: Player {playerId} plays card {cardId}");
-
         // TODO: Implement card game synchronization
         // This would update the card game state on all clients
     }
@@ -398,7 +467,7 @@ public partial class NetworkManager : Node
     private void OnPeerConnected(long id)
     {
         int playerId = (int)id;
-        GD.Print($"NetworkManager: Peer connected - ID: {playerId}");
+        GD.Print($"NetworkManager: Peer {playerId} connected (Host: {IsHost})");
 
         // Add to connected players
         ConnectedPlayers[playerId] = new PlayerNetworkData
@@ -423,27 +492,30 @@ public partial class NetworkManager : Node
         if (GameManager.Instance != null)
         {
             GameManager.Instance.AddPlayer(playerId, playerData);
-            GD.Print($"NetworkManager: Added player {playerId} to GameManager");
-
-            // If we're host and this is the second player, move to card game phase
-            if (IsHost && ConnectedPlayers.Count >= 2)
+            
+            // CRITICAL DEBUG: Log all connected players
+            GD.Print($"NetworkManager: All connected players after peer {playerId} joined:");
+            foreach (var kvp in GameManager.Instance.ConnectedPlayers)
             {
-                GD.Print("NetworkManager: Enough players connected, transitioning to card phase");
-                GameManager.Instance.ChangePhase(GameManager.GamePhase.CardPhase);
+                var isLocal = kvp.Key == GameManager.Instance.LocalPlayer?.PlayerId;
+                GD.Print($"  - Player {kvp.Key}: {kvp.Value.PlayerName} (Local: {isLocal})");
             }
+
+            // REMOVED: Automatic transition to card phase when 2+ players connect
+            // Let the host manually control when the game starts via the lobby UI
         }
 
         // If we're the host, send welcome message
         if (IsHost)
         {
-            GD.Print($"NetworkManager: Welcoming new player {playerId}");
-
             // Send current game state to new player
             if (GameManager.Instance?.LocalPlayer != null)
             {
+                GD.Print($"NetworkManager: Host sending player data to new client {playerId}: {GameManager.Instance.LocalPlayer.PlayerName} (ID: {GameManager.Instance.LocalPlayer.PlayerId})");
+                
                 RpcId(playerId, MethodName.ReceivePlayerData,
                     GameManager.Instance.LocalPlayer.PlayerId,
-                    GameManager.Instance.LocalPlayer);
+                    GameManager.Instance.LocalPlayer.PlayerName);
             }
         }
 
@@ -457,15 +529,12 @@ public partial class NetworkManager : Node
     private void OnPeerDisconnected(long id)
     {
         int playerId = (int)id;
-        GD.Print($"NetworkManager: Peer disconnected - ID: {playerId}");
+        GD.Print($"NetworkManager: Peer {playerId} disconnected");
 
         // Remove from connected players
         if (ConnectedPlayers.ContainsKey(playerId))
         {
-            string playerName = ConnectedPlayers[playerId].PlayerName;
             ConnectedPlayers.Remove(playerId);
-
-            GD.Print($"NetworkManager: Player {playerName} removed from connected players");
         }
 
         // Notify GameManager
@@ -479,17 +548,18 @@ public partial class NetworkManager : Node
     /// </summary>
     private void OnConnectedToServer()
     {
-        GD.Print("NetworkManager: Successfully connected to server");
+        GD.Print("NetworkManager: Connected to server");
 
         IsConnected = true;
+        GD.Print($"NetworkManager: CLIENT CONNECTED TO SERVER - IsHost: {IsHost}, IsClient: {IsClient}, IsConnected: {IsConnected}");
 
         // Update local player ID to use the multiplayer unique ID
         if (GameManager.Instance?.LocalPlayer != null)
         {
             int networkPlayerId = GetTree().GetMultiplayer().GetUniqueId();
-            GD.Print($"NetworkManager: Client assigned network player ID: {networkPlayerId}");
-
             int oldId = GameManager.Instance.LocalPlayer.PlayerId;
+
+            GD.Print($"NetworkManager: CLIENT updating player ID from {oldId} to {networkPlayerId}");
 
             // Update the local player with the network-assigned ID
             GameManager.Instance.LocalPlayer.PlayerId = networkPlayerId;
@@ -500,22 +570,25 @@ public partial class NetworkManager : Node
             {
                 GameManager.Instance.ConnectedPlayers.Remove(oldId); // Remove old temp ID
                 GameManager.Instance.AddPlayer(networkPlayerId, GameManager.Instance.LocalPlayer);
-                GD.Print($"NetworkManager: Updated client ID from {oldId} to {networkPlayerId}");
+                
+                GD.Print($"NetworkManager: CLIENT removed old ID {oldId}, added new ID {networkPlayerId}");
             }
-            else
+
+            // CRITICAL DEBUG: Log all connected players after update
+            GD.Print($"NetworkManager: CLIENT all connected players after ID update:");
+            foreach (var kvp in GameManager.Instance.ConnectedPlayers)
             {
-                GD.Print($"NetworkManager: Client ID unchanged ({networkPlayerId}), no need to re-add");
+                var isLocal = kvp.Key == GameManager.Instance.LocalPlayer?.PlayerId;
+                GD.Print($"  - Player {kvp.Key}: {kvp.Value.PlayerName} (Local: {isLocal})");
             }
 
             // Send our updated player data to the server
+            GD.Print($"NetworkManager: CLIENT sending player data to host: {GameManager.Instance.LocalPlayer.PlayerName} (ID: {networkPlayerId})");
             SendPlayerData(GameManager.Instance.LocalPlayer);
         }
 
-        // Transition to card game phase
-        if (GameManager.Instance != null)
-        {
-            GameManager.Instance.ChangePhase(GameManager.GamePhase.CardPhase);
-        }
+        // CRITICAL FIX: Don't auto-transition to card phase
+        // Let the host control when the game actually begins via StartCardGame()
 
         EmitSignal(SignalName.ClientConnectedToServer);
     }
@@ -552,8 +625,6 @@ public partial class NetworkManager : Node
 
     public override void _ExitTree()
     {
-        GD.Print("NetworkManager: Cleaning up network manager...");
-
         // Disconnect multiplayer signals
         if (multiplayerApi != null)
         {
@@ -581,6 +652,38 @@ public partial class NetworkManager : Node
         return roomCode != null &&
                roomCode.Length == 6 &&
                int.TryParse(roomCode, out _);
+    }
+
+    /// <summary>
+    /// Sets up multiplayer authority for the given player ID.
+    /// This ensures that the CardManager and other critical nodes are
+    /// controlled by the host and not the clients.
+    /// </summary>
+    /// <param name="playerId">The player ID of the host.</param>
+    private void SetupMultiplayerAuthority(int playerId)
+    {
+        // Set authority for CardManager
+        if (GetNode<CardManager>("/root/CardManager") is CardManager cardManager)
+        {
+            cardManager.SetMultiplayerAuthority(playerId);
+        }
+        else
+        {
+            GD.PrintErr("NetworkManager: CardManager node not found in scene.");
+        }
+
+        // Set authority for GameManager
+        if (GetNode<GameManager>("/root/GameManager") is GameManager gameManager)
+        {
+            gameManager.SetMultiplayerAuthority(playerId);
+        }
+        else
+        {
+            GD.PrintErr("NetworkManager: GameManager node not found in scene.");
+        }
+
+        // Set authority for NetworkManager
+        SetMultiplayerAuthority(playerId);
     }
 }
 

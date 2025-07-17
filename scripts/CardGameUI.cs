@@ -76,7 +76,7 @@ public partial class CardGameUI : Control
         if (trickArea != null)
         {
             trickArea.ClipContents = false;
-            GD.Print($"DEBUG: Trick area configured - Size: {trickArea.Size}, ClipContents: {trickArea.ClipContents}");
+            // Trick area configured successfully
         }
         chatPanel = GetNode<Panel>("ChatPanel");
         chatLabel = GetNode<Label>("ChatPanel/ChatVBox/ChatLabel");
@@ -97,10 +97,7 @@ public partial class CardGameUI : Control
         // DEBUG: Verify chat panel properties on startup
         if (chatPanel != null)
         {
-            GD.Print($"DEBUG: Chat panel found! Initial size: {chatPanel.Size}");
-            GD.Print($"DEBUG: Chat panel position: {chatPanel.Position}");
-            GD.Print($"DEBUG: Chat panel anchors: L={chatPanel.AnchorLeft}, T={chatPanel.AnchorTop}, R={chatPanel.AnchorRight}, B={chatPanel.AnchorBottom}");
-            GD.Print($"DEBUG: Chat panel offsets: L={chatPanel.OffsetLeft}, T={chatPanel.OffsetTop}, R={chatPanel.OffsetRight}, B={chatPanel.OffsetBottom}");
+            // Chat panel found and configured
 
             // Style chat panel to be semi-transparent and visually "in front" but clickable behind
             var chatStyleBox = new StyleBoxFlat();
@@ -116,7 +113,7 @@ public partial class CardGameUI : Control
             chatStyleBox.CornerRadiusBottomRight = 5;
             chatPanel.AddThemeStyleboxOverride("panel", chatStyleBox);
 
-            GD.Print("DEBUG: Chat panel styled to be semi-transparent and visually in front");
+            // Chat panel styled successfully
         }
         else
         {
@@ -138,7 +135,7 @@ public partial class CardGameUI : Control
         overlayLayer.OffsetBottom = 0.0f;
         AddChild(overlayLayer);
 
-        GD.Print("DEBUG: Sabotage overlay layer created");
+        // Sabotage overlay layer created successfully
 
         // Initialize chat
         UpdateChatDisplay();
@@ -203,10 +200,6 @@ public partial class CardGameUI : Control
             float startX = (trickAreaSize.X - totalWidthNeeded) / 2; // Center horizontally
             float cardY = (trickAreaSize.Y - cardHeight) / 2; // Center vertically (cards may extend above/below)
             
-            GD.Print($"DEBUG: Trick area size: {trickAreaSize}");
-            GD.Print($"DEBUG: Trick cards positioning - Start X: {startX}, Card Y: {cardY}");
-            GD.Print($"DEBUG: Total width needed: {totalWidthNeeded}, Card spacing: {overlapSpacing} (positive = gap, negative = overlap)");
-
             for (int i = 0; i < gameState.CurrentTrick.Count; i++)
             {
                 var cardPlay = gameState.CurrentTrick[i];
@@ -223,8 +216,6 @@ public partial class CardGameUI : Control
                 cardButton.Size = trickCardSize;
                 cardButton.CustomMinimumSize = trickCardSize;
                 cardButton.CallDeferred(Control.MethodName.SetSize, trickCardSize);
-                
-                GD.Print($"DEBUG: Trick card {i} ({cardPlay.Card} by P{cardPlay.PlayerId}) positioned at: {cardPos}");
             }
 
             GD.Print($"CardGameUI: Displayed {gameState.CurrentTrick.Count} trick cards with actual graphics");
@@ -232,13 +223,18 @@ public partial class CardGameUI : Control
     }
 
     /// <summary>
-    /// Update the players info panel to show each player's status
+    /// Update the display of all players' info (cards, scores, turn indicators)
     /// </summary>
     private void UpdatePlayersInfo()
     {
         if (cardManager == null || gameManager == null || !cardManager.GameInProgress) return;
 
         var gameState = cardManager.GetGameState();
+        var localPlayerId = gameManager?.LocalPlayer?.PlayerId ?? -1;
+
+        // CRITICAL DEBUG: Log game state information
+        GD.Print($"CardGameUI: UpdatePlayersInfo - CurrentPlayerTurn from game state: {gameState.CurrentPlayerTurn}");
+        GD.Print($"CardGameUI: UpdatePlayersInfo - Local player ID: {localPlayerId}");
 
         // Clear existing player info labels (but keep the title)
         foreach (var label in playerInfoLabels)
@@ -265,6 +261,10 @@ public partial class CardGameUI : Control
             // Check if it's this player's turn
             bool isCurrentTurn = gameState.CurrentPlayerTurn == playerId;
             string turnIndicator = isCurrentTurn ? " [TURN]" : "";
+            bool isLocal = playerId == localPlayerId;
+
+            // CRITICAL DEBUG: Log each player's status
+            GD.Print($"CardGameUI: Player {playerId} ({playerData.PlayerName}) - Turn: {isCurrentTurn}, Local: {isLocal}");
 
             // Get player location
             var location = gameManager.GetPlayerLocation(playerId);
@@ -277,6 +277,7 @@ public partial class CardGameUI : Control
             if (isCurrentTurn)
             {
                 playerInfoLabel.Modulate = Colors.Yellow;
+                GD.Print($"CardGameUI: Highlighting player {playerId} ({playerData.PlayerName}) as current turn");
             }
             else
             {
@@ -352,11 +353,11 @@ public partial class CardGameUI : Control
             // Connect sabotage cleaning events - FIXED: These signatures are correct
             gameManager.SabotageManager.SabotageCleaned += OnSabotageCleaned;
 
-            GD.Print("DEBUG: Connected to SabotageManager events including SabotageCleaned");
+            // Connected to SabotageManager events successfully
         }
         else
         {
-            GD.PrintErr("DEBUG: SabotageManager not available for visual effects");
+            // SabotageManager not available - visual effects disabled
         }
 
         // Initialize UI state
@@ -673,20 +674,10 @@ public partial class CardGameUI : Control
     {
         GD.Print("CardGameUI: UpdatePlayerHand called");
 
-        // DEBUG: Log PlayerHand container properties
-        if (playerHand != null)
-        {
-            GD.Print($"DEBUG: PlayerHand container properties:");
-            GD.Print($"DEBUG: - Size: {playerHand.Size}");
-            GD.Print($"DEBUG: - Position: {playerHand.Position}");
-            GD.Print($"DEBUG: - OffsetLeft: {playerHand.OffsetLeft}, OffsetTop: {playerHand.OffsetTop}");
-            GD.Print($"DEBUG: - OffsetRight: {playerHand.OffsetRight}, OffsetBottom: {playerHand.OffsetBottom}");
-            GD.Print($"DEBUG: - AnchorLeft: {playerHand.AnchorLeft}, AnchorTop: {playerHand.AnchorTop}");
-            GD.Print($"DEBUG: - AnchorRight: {playerHand.AnchorRight}, AnchorBottom: {playerHand.AnchorBottom}");
-        }
-        else
+        if (playerHand == null)
         {
             GD.PrintErr("DEBUG: PlayerHand container is NULL!");
+            return;
         }
 
         if (cardManager == null)
@@ -748,22 +739,12 @@ public partial class CardGameUI : Control
         // Use the PlayerHand container's actual size (which we know has proper dimensions)
         Vector2 availableSize = playerHand.Size;
         
-        GD.Print($"DEBUG: Manual positioning setup:");
-        GD.Print($"DEBUG: - Card size: {cardSize}");
-        GD.Print($"DEBUG: - PlayerHand container size: {availableSize}");
-        GD.Print($"DEBUG: - Card container size: {cardContainer.Size}");
-        GD.Print($"DEBUG: - Hand card spacing: {overlapSpacing} (negative = overlap for fan effect)");
-        
         if (currentPlayerCards.Count <= 7)
         {
             // Single row - manually positioned at bottom center
             float totalWidthNeeded = (currentPlayerCards.Count - 1) * overlapSpacing + cardWidth;
             float startX = (availableSize.X - totalWidthNeeded) / 2; // Center horizontally
             float cardY = availableSize.Y - cardHeight - 10; // ADJUSTED: Appropriate margin for 100x140 cards
-            
-            GD.Print($"DEBUG: Single row positioning:");
-            GD.Print($"DEBUG: - Total width needed: {totalWidthNeeded}");
-            GD.Print($"DEBUG: - Start X: {startX}, Card Y: {cardY}");
 
             for (int i = 0; i < currentPlayerCards.Count; i++)
             {
@@ -782,9 +763,6 @@ public partial class CardGameUI : Control
                 
                 // FINAL ENFORCEMENT: Set size again after next frame processing
                 cardButton.CallDeferred(Control.MethodName.SetSize, cardSize);
-                
-                GD.Print($"DEBUG: Card {i} ({card}) positioned at: {cardPos}");
-                GD.Print($"DEBUG: Card {i} final size after adding to scene: {cardButton.Size}");
             }
 
             GD.Print($"CardGameUI: Created {cardButtons.Count} manually positioned cards in single row");
@@ -797,10 +775,6 @@ public partial class CardGameUI : Control
             float startX = (availableSize.X - totalWidthNeeded) / 2;
             float topRowY = availableSize.Y - cardHeight * 2 - 20; // ADJUSTED: Appropriate space between rows for 100x140 cards
             float bottomRowY = availableSize.Y - cardHeight - 10; // ADJUSTED: Appropriate margin for 100x140 cards
-            
-            GD.Print($"DEBUG: Two row positioning:");
-            GD.Print($"DEBUG: - Cards per row: {cardsPerRow}");
-            GD.Print($"DEBUG: - Top row Y: {topRowY}, Bottom row Y: {bottomRowY}");
 
             for (int i = 0; i < currentPlayerCards.Count; i++)
             {
@@ -830,9 +804,6 @@ public partial class CardGameUI : Control
                 
                 // FINAL ENFORCEMENT: Set size again after next frame processing
                 cardButton.CallDeferred(Control.MethodName.SetSize, cardSize);
-                
-                GD.Print($"DEBUG: Card {i} ({card}) positioned at: {cardPos}");
-                GD.Print($"DEBUG: Card {i} final size after adding to scene: {cardButton.Size}");
             }
 
             GD.Print($"CardGameUI: Created {cardButtons.Count} manually positioned cards in two rows ({cardsPerRow} top, {currentPlayerCards.Count - cardsPerRow} bottom)");
@@ -987,13 +958,7 @@ public partial class CardGameUI : Control
         cardButton.Size = cardSize;
         cardButton.CustomMinimumSize = cardSize;
 
-        // DEBUG: Log the actual card button properties
-        GD.Print($"DEBUG: Created card button for {card}");
-        GD.Print($"DEBUG: - Size set to: {cardSize}");
-        GD.Print($"DEBUG: - Actual Size after creation: {cardButton.Size}");
-        GD.Print($"DEBUG: - CustomMinimumSize: {cardButton.CustomMinimumSize}");
-        GD.Print($"DEBUG: - IgnoreTextureSize: {cardButton.IgnoreTextureSize}");
-        GD.Print($"DEBUG: - StretchMode: {cardButton.StretchMode}");
+        // Card button configured successfully
 
         // Store card index in button metadata
         cardButton.SetMeta("card_index", index);
@@ -1048,10 +1013,7 @@ public partial class CardGameUI : Control
         // Add tooltip showing card and player info
         cardButton.TooltipText = $"Player {playerId}: {card}";
 
-        GD.Print($"DEBUG: Created trick card button for {card} (Player {playerId})");
-        GD.Print($"DEBUG: - Trick card size: {trickCardSize}");
-        GD.Print($"DEBUG: - Disabled: {cardButton.Disabled}");
-        GD.Print($"DEBUG: - MouseFilter: {cardButton.MouseFilter}");
+        // Trick card button configured successfully
 
         return cardButton;
     }
@@ -1144,19 +1106,32 @@ public partial class CardGameUI : Control
     /// <param name="playerId">Player whose turn started</param>
     private void OnTurnStarted(int playerId)
     {
-        GD.Print($"CardGameUI: Turn started for player {playerId}");
+        var localPlayerId = gameManager?.LocalPlayer?.PlayerId ?? -1;
+        var localPlayerName = gameManager?.LocalPlayer?.PlayerName ?? "Unknown";
+        var turnPlayerData = gameManager?.GetPlayer(playerId);
+        var turnPlayerName = turnPlayerData?.PlayerName ?? "Unknown";
+        var isLocalTurn = localPlayerId == playerId;
+
+        GD.Print($"CardGameUI: Turn started for player {playerId} ({turnPlayerName})");
+        GD.Print($"CardGameUI: Local player is {localPlayerId} ({localPlayerName})");
+        GD.Print($"CardGameUI: Is local player's turn: {isLocalTurn}");
 
         // Update UI to show whose turn it is
         if (gameManager != null && gameManager.LocalPlayer?.PlayerId == playerId)
         {
             // It's our turn - enable card interactions
+            GD.Print($"CardGameUI: Enabling card interactions for local player");
             SetCardsInteractable(true);
         }
         else
         {
             // Not our turn - disable card interactions
+            GD.Print($"CardGameUI: Disabling card interactions - not local player's turn");
             SetCardsInteractable(false);
         }
+
+        // Force update of players info to refresh turn indicators
+        UpdatePlayersInfo();
     }
 
     /// <summary>
@@ -1398,52 +1373,25 @@ public partial class CardGameUI : Control
         Vector2 baseSize = new Vector2(260, 160); // Base chat panel size (from scene: 280x160, but using 260x160 for growth calc)
         Vector2 newSize = baseSize * multiplier;
 
-        GD.Print($"CardGameUI: === CHAT PANEL GROWTH DEBUG ===");
-        GD.Print($"CardGameUI: Current chat panel size: {chatPanel.Size}");
-        GD.Print($"CardGameUI: Current chat panel position: {chatPanel.Position}");
-        GD.Print($"CardGameUI: Base size for calculation: {baseSize}");
-        GD.Print($"CardGameUI: Multiplier: {multiplier}");
-        GD.Print($"CardGameUI: Target size: {newSize}");
-
         // Calculate the bottom-right corner position (this should stay fixed)
         Vector2 currentBottomRight = chatPanel.Position + chatPanel.Size;
-        GD.Print($"CardGameUI: Current bottom-right corner: {currentBottomRight}");
 
         // Calculate new position to keep bottom-right corner fixed
         Vector2 newPosition = currentBottomRight - newSize;
-        GD.Print($"CardGameUI: New position to keep bottom-right fixed: {newPosition}");
 
         // Animate both size and position changes
         var tween = CreateTween();
         if (tween != null)
         {
-            GD.Print("CardGameUI: Starting tween animation for size AND position...");
-
             // Animate both size and position in parallel
             tween.Parallel().TweenProperty(chatPanel, "size", newSize, 0.5f);
             tween.Parallel().TweenProperty(chatPanel, "position", newPosition, 0.5f);
-
-            GD.Print("CardGameUI: Tween animation started for chat panel resize with position adjustment");
-
-            // Add completion callback to confirm resize
-            tween.TweenCallback(Callable.From(() =>
-            {
-                GD.Print($"CardGameUI: === TWEEN COMPLETED ===");
-                GD.Print($"CardGameUI: Final chat panel size: {chatPanel.Size}");
-                GD.Print($"CardGameUI: Final chat panel position: {chatPanel.Position}");
-                Vector2 finalBottomRight = chatPanel.Position + chatPanel.Size;
-                GD.Print($"CardGameUI: Final bottom-right corner: {finalBottomRight}");
-                GD.Print($"CardGameUI: Bottom-right corner moved by: {finalBottomRight - currentBottomRight}");
-            }));
         }
         else
         {
             // Fallback: set size and position directly if tween fails
-            GD.Print("CardGameUI: Tween failed, setting chat panel size and position directly");
             chatPanel.Size = newSize;
             chatPanel.Position = newPosition;
-            GD.Print($"CardGameUI: Size set directly to: {chatPanel.Size}");
-            GD.Print($"CardGameUI: Position set directly to: {chatPanel.Position}");
         }
 
         // Update chat label to show intimidation status
@@ -1750,10 +1698,7 @@ public partial class CardGameUI : Control
     /// </summary>
     private void CleanSabotageVisual(SabotageType sabotageType)
     {
-        GD.Print($"DEBUG: ========== STARTING COMPREHENSIVE CLEANING OF {sabotageType} ==========");
-
         int localPlayerId = gameManager?.LocalPlayer?.PlayerId ?? 0;
-        GD.Print($"DEBUG: Local player ID: {localPlayerId}");
 
         var allRemovedEffects = new List<string>();
         int totalFoundEffects = 0;
@@ -1762,11 +1707,9 @@ public partial class CardGameUI : Control
         if (playerVisualOverlays.ContainsKey(localPlayerId))
         {
             var overlaysList = playerVisualOverlays[localPlayerId];
-            GD.Print($"DEBUG: Found {overlaysList.Count} tracked visual overlays for player {localPlayerId}");
 
             // Create a COPY of the list to safely iterate (avoid collection modification during iteration)
             var overlaysListCopy = new List<Control>(overlaysList);
-            GD.Print($"DEBUG: Created copy of {overlaysListCopy.Count} tracked overlays for safe iteration");
 
             foreach (var overlay in overlaysListCopy)
             {
@@ -1777,8 +1720,6 @@ public partial class CardGameUI : Control
                     // Check both name AND metadata for identification
                     bool isEggSplat = (overlayName == "EggSplat") || overlay.GetMeta("IsEggSplat", false).AsBool();
                     bool isStinkFog = (overlayName == "StinkFog") || overlay.GetMeta("IsStinkFog", false).AsBool();
-
-                    GD.Print($"DEBUG: Checking tracked overlay: '{overlayName}' - IsEggSplat: {isEggSplat}, IsStinkFog: {isStinkFog}");
 
                     bool shouldRemove = false;
                     switch (sabotageType)
@@ -1800,7 +1741,6 @@ public partial class CardGameUI : Control
                     if (shouldRemove)
                     {
                         totalFoundEffects++;
-                        GD.Print($"DEBUG: Removing tracked {overlayName} overlay (identified as {sabotageType})");
 
                         // Remove from parent and tracking FIRST, then free
                         if (overlay.GetParent() != null)
@@ -1811,32 +1751,20 @@ public partial class CardGameUI : Control
                         overlay.QueueFree(); // Use QueueFree for safer removal
 
                         allRemovedEffects.Add($"tracked {overlayName}");
-                        GD.Print($"DEBUG: Successfully removed tracked {overlayName}");
                     }
                 }
                 else
                 {
-                    GD.Print($"DEBUG: Skipping invalid/disposed tracked overlay");
                     // Clean up invalid references from tracking
                     if (playerVisualOverlays[localPlayerId].Contains(overlay))
                     {
                         playerVisualOverlays[localPlayerId].Remove(overlay);
-                        GD.Print($"DEBUG: Cleaned up invalid reference from tracking");
                     }
                 }
             }
-
-            GD.Print($"DEBUG: Tracked cleaning complete. Remaining tracked overlays: {playerVisualOverlays[localPlayerId].Count}");
-        }
-        else
-        {
-            GD.Print("DEBUG: No tracked visual overlays dictionary entry for local player");
-            GD.Print($"DEBUG: Available player overlay keys: {string.Join(", ", playerVisualOverlays.Keys)}");
         }
 
         // STEP 2: COMPREHENSIVE CLEANUP - Search entire overlay layer multiple times until no more found
-        GD.Print("DEBUG: Starting comprehensive cleanup - searching entire overlay layer");
-
         int searchRounds = 0;
         bool foundEffectsThisRound = true;
 
@@ -1844,12 +1772,10 @@ public partial class CardGameUI : Control
         {
             searchRounds++;
             foundEffectsThisRound = false;
-            GD.Print($"DEBUG: === SEARCH ROUND {searchRounds} ===");
 
             if (overlayLayer != null)
             {
                 var allChildren = overlayLayer.GetChildren();
-                GD.Print($"DEBUG: Found {allChildren.Count} total children in overlay layer");
 
                 // Create a copy of children list for safe iteration
                 var childrenCopy = new List<Node>();
@@ -1874,8 +1800,6 @@ public partial class CardGameUI : Control
                             isStinkFog = (childName == "StinkFog") || control.GetMeta("IsStinkFog", false).AsBool();
                         }
 
-                        GD.Print($"DEBUG: Checking overlay layer child: '{childName}' (Type: {child.GetType().Name}) - IsEggSplat: {isEggSplat}, IsStinkFog: {isStinkFog}");
-
                         bool shouldRemove = false;
                         switch (sabotageType)
                         {
@@ -1897,7 +1821,6 @@ public partial class CardGameUI : Control
                         {
                             totalFoundEffects++;
                             foundEffectsThisRound = true;
-                            GD.Print($"DEBUG: Found and removing {childName} (identified as {sabotageType})!");
 
                             // Safe removal
                             if (child.GetParent() != null)
@@ -1907,22 +1830,8 @@ public partial class CardGameUI : Control
                             child.QueueFree();
 
                             allRemovedEffects.Add($"untracked {childName} (round {searchRounds})");
-                            GD.Print($"DEBUG: Successfully removed untracked {childName}");
                         }
                     }
-                    else
-                    {
-                        GD.Print($"DEBUG: Skipping invalid/disposed overlay layer child");
-                    }
-                }
-
-                if (foundEffectsThisRound)
-                {
-                    GD.Print($"DEBUG: Found effects in round {searchRounds}, will search again...");
-                }
-                else
-                {
-                    GD.Print($"DEBUG: No more effects found in round {searchRounds}, cleanup complete!");
                 }
             }
             else
@@ -1932,18 +1841,12 @@ public partial class CardGameUI : Control
             }
         }
 
-        GD.Print($"DEBUG: COMPREHENSIVE ROBUST cleaning complete for {sabotageType}!");
-        GD.Print($"DEBUG: Total effects found and removed: {totalFoundEffects}");
-        GD.Print($"DEBUG: Search rounds completed: {searchRounds}");
-        GD.Print($"DEBUG: Detailed removal list: {string.Join(", ", allRemovedEffects)}");
-
         // STEP 3: Final verification after a short delay to let QueueFree take effect
         GetTree().CreateTimer(0.1).Timeout += () =>
         {
             VerifyCleanupComplete(sabotageType);
         };
 
-        GD.Print($"DEBUG: ========== CLEANING COMPLETE FOR {sabotageType} ==========");
     }
 
     /// <summary>
@@ -1951,8 +1854,6 @@ public partial class CardGameUI : Control
     /// </summary>
     private void VerifyCleanupComplete(SabotageType sabotageType)
     {
-        GD.Print($"DEBUG: === VERIFYING CLEANUP COMPLETE FOR {sabotageType} ===");
-
         if (overlayLayer != null)
         {
             var remainingChildren = overlayLayer.GetChildren();
@@ -1989,12 +1890,7 @@ public partial class CardGameUI : Control
 
             if (remainingTargetEffects.Count > 0)
             {
-                GD.PrintErr($"DEBUG: ⚠️  WARNING - {remainingTargetEffects.Count} {sabotageType} effects still remain: {string.Join(", ", remainingTargetEffects)}");
-                GD.PrintErr($"DEBUG: Cleanup may have failed or new effects were created during cleanup");
-            }
-            else
-            {
-                GD.Print($"DEBUG: ✅ SUCCESS - All {sabotageType} effects completely removed!");
+                GD.PrintErr($"WARNING - {remainingTargetEffects.Count} {sabotageType} effects still remain: {string.Join(", ", remainingTargetEffects)}");
             }
         }
     }
@@ -2012,4 +1908,6 @@ public partial class CardGameUI : Control
         }
     }
 }
+
+
 

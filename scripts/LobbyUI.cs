@@ -1,4 +1,5 @@
 using Godot;
+using System;
 
 /// <summary>
 /// Handles lobby UI for both host and client waiting states
@@ -14,8 +15,6 @@ public partial class LobbyUI : Control
 
     public override void _Ready()
     {
-        GD.Print("Lobby UI loaded");
-
         // Get references to UI elements
         roomCodeLabel = GetNode<Label>("VBoxContainer/RoomCodeLabel");
         playersLabel = GetNode<Label>("VBoxContainer/PlayersLabel");
@@ -43,10 +42,12 @@ public partial class LobbyUI : Control
 
         // Show appropriate UI based on host vs client
         bool isHost = GameManager.Instance.CurrentPhase == GameManager.GamePhase.HostLobby;
+        
+        GD.Print($"LobbyUI: Phase check - CurrentPhase: {GameManager.Instance.CurrentPhase}, IsHost phase: {isHost}");
+        GD.Print($"LobbyUI: NetworkManager status - IsHost: {GameManager.Instance.NetworkManager?.IsHost}, IsClient: {GameManager.Instance.NetworkManager?.IsClient}, IsConnected: {GameManager.Instance.NetworkManager?.IsConnected}");
 
         if (isHost)
         {
-            GD.Print("LobbyUI: Showing host lobby state");
             startGameButton.Visible = true;
             startGameButton.Text = "Start Game";
 
@@ -56,7 +57,6 @@ public partial class LobbyUI : Control
         }
         else
         {
-            GD.Print("LobbyUI: Showing client lobby state");
             startGameButton.Visible = false;
             roomCodeLabel.Text = "Waiting for host...";
         }
@@ -109,13 +109,50 @@ public partial class LobbyUI : Control
     {
         GD.Print("LobbyUI: Start game button pressed");
 
-        if (GameManager.Instance == null) return;
+        if (GameManager.Instance == null)
+        {
+            GD.PrintErr("LobbyUI: GameManager.Instance is null!");
+            return;
+        }
 
-        // Remove player count check - we automatically add AI players to fill the game
-        // Let GameManager and CardManager handle the final validation
+        // Check if we're actually the host
+        if (GameManager.Instance.NetworkManager == null)
+        {
+            GD.PrintErr("LobbyUI: NetworkManager is null!");
+            return;
+        }
 
-        // Start the card game phase
-        GameManager.Instance.StartCardGame();
+        if (!GameManager.Instance.NetworkManager.IsHost)
+        {
+            GD.PrintErr("LobbyUI: Only host can start the game!");
+            return;
+        }
+
+        // Validate minimum players (we'll add AI players automatically)
+        int playerCount = GameManager.Instance.ConnectedPlayers.Count;
+        if (playerCount < 1)
+        {
+            GD.PrintErr("LobbyUI: Need at least 1 human player to start game");
+            return;
+        }
+
+        // Disable button to prevent double-clicking
+        startGameButton.Disabled = true;
+        startGameButton.Text = "Starting Game...";
+
+        try
+        {
+            // Start the card game phase
+            GameManager.Instance.StartCardGame();
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"LobbyUI: Failed to start card game: {ex.Message}");
+            
+            // Re-enable button on failure
+            startGameButton.Disabled = false;
+            startGameButton.Text = "Start Game";
+        }
     }
 
     /// <summary>
@@ -123,8 +160,6 @@ public partial class LobbyUI : Control
     /// </summary>
     private void _on_back_button_pressed()
     {
-        GD.Print("LobbyUI: Back button pressed");
-
         if (GameManager.Instance != null)
         {
             GameManager.Instance.ReturnToMainMenu();
@@ -138,7 +173,6 @@ public partial class LobbyUI : Control
     /// <param name="playerData">Player data</param>
     private void OnPlayerJoined(int playerId, PlayerData playerData)
     {
-        GD.Print($"LobbyUI: Player {playerData.PlayerName} joined");
         UpdatePlayerList();
     }
 
@@ -148,7 +182,6 @@ public partial class LobbyUI : Control
     /// <param name="playerId">Player ID that left</param>
     private void OnPlayerLeft(int playerId)
     {
-        GD.Print($"LobbyUI: Player {playerId} left");
         UpdatePlayerList();
     }
 
