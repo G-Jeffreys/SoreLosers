@@ -1,7 +1,8 @@
-[gd_scene load_steps=7 format=3 uid="uid://b8iav3q2m7n4k"]
+[gd_scene load_steps=8 format=3 uid="uid://b8iav3q2m7n4k"]
 
 [ext_resource type="Script" uid="uid://d1hgntu05afvg" path="res://scripts/CardGameUI.cs" id="1_2d4fg"]
 [ext_resource type="Script" path="res://scripts/Player.cs" id="2_player"]
+[ext_resource type="Texture2D" uid="uid://kbqvikmcoe0b" path="res://assets/environment/room/background.png" id="3_background"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_1"]
 size = Vector2(32, 32)
@@ -135,14 +136,16 @@ grow_horizontal = 2
 grow_vertical = 2
 visible = false
 
-[node name="KitchenBackground" type="ColorRect" parent="KitchenView"]
+[node name="KitchenBackground" type="TextureRect" parent="KitchenView"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0.3, 0.2, 0.1, 1)
+texture = ExtResource("3_background")
+expand_mode = 1
+stretch_mode = 6
 
 [node name="Player" type="CharacterBody2D" parent="KitchenView"]
 position = Vector2(500, 300)
@@ -159,7 +162,7 @@ color = Color(0, 0, 1, 1)
 shape = SubResource("RectangleShape2D_1")
 
 [node name="EggTray" type="StaticBody2D" parent="KitchenView"]
-position = Vector2(100, 100)
+position = Vector2(150, 150)
 
 [node name="EggTraySprite" type="ColorRect" parent="KitchenView/EggTray"]
 offset_left = -25.0
@@ -180,7 +183,7 @@ horizontal_alignment = 1
 shape = SubResource("RectangleShape2D_2")
 
 [node name="Sink" type="StaticBody2D" parent="KitchenView"]
-position = Vector2(800, 100)
+position = Vector2(900, 150)
 
 [node name="SinkSprite" type="ColorRect" parent="KitchenView/Sink"]
 offset_left = -25.0
@@ -201,7 +204,7 @@ horizontal_alignment = 1
 shape = SubResource("RectangleShape2D_3")
 
 [node name="CardTable" type="StaticBody2D" parent="KitchenView"]
-position = Vector2(450, 300)
+position = Vector2(600, 400)
 
 [node name="TableSprite" type="ColorRect" parent="KitchenView/CardTable"]
 offset_left = -60.0

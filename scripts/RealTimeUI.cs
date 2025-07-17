@@ -114,14 +114,33 @@ public partial class RealTimeUI : Control
 
     public void CreateEggSplat(Vector2 position)
     {
-        var splat = new ColorRect();
-        splat.Name = "EggSplat";
-        splat.Color = new Color(1, 1, 0, 0.7f);
-        splat.Size = new Vector2(100, 100);
-        splat.Position = position - splat.Size / 2;
-        overlayLayer.AddChild(splat);
+        // Load the egg splat texture asset
+        var splatTexture = GD.Load<Texture2D>("res://assets/sabotage/egg_splat_extra.png");
 
-        GD.Print($"Created egg splat at {position}");
+        if (splatTexture != null)
+        {
+            var splat = new TextureRect();
+            splat.Name = "EggSplat";
+            splat.Texture = splatTexture;
+            splat.Size = new Vector2(100, 100);
+            splat.Position = position - splat.Size / 2;
+            splat.ExpandMode = TextureRect.ExpandModeEnum.FitWidthProportional;
+            splat.StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered;
+            splat.Modulate = new Color(1.0f, 1.0f, 1.0f, 0.7f); // Transparency
+            overlayLayer.AddChild(splat);
+            GD.Print($"Created egg splat texture at {position}");
+        }
+        else
+        {
+            // Fallback to colored rectangle if texture fails to load
+            var splat = new ColorRect();
+            splat.Name = "EggSplat";
+            splat.Color = new Color(1, 1, 0, 0.7f);
+            splat.Size = new Vector2(100, 100);
+            splat.Position = position - splat.Size / 2;
+            overlayLayer.AddChild(splat);
+            GD.Print($"Created fallback egg splat rectangle at {position} (texture failed to load)");
+        }
     }
 
     public void CreateStinkBomb(Vector2 position)

@@ -38,9 +38,10 @@ assets/
 │   ├── egg_splat_small.png         # ✅ 20% coverage (ThrowPower Level 1)
 │   ├── egg_splat_medium.png        # ✅ 50% coverage (ThrowPower Level 5)
 │   ├── egg_splat_large.png         # ✅ 80% coverage (ThrowPower Level 10)
-│   └── egg_splat_extra.png         # ✅ Alternative/backup design
+│   └── egg_splat_extra.png         # ✅ INTEGRATED - Active egg splat graphics in visual effects
 ├── environment/                    # Game world assets
 │   ├── room/                       # Room backgrounds
+│   │   ├── background.png          # ✅ INTEGRATED - Active kitchen background in CardGame scene
 │   │   ├── room_background_1.png   # ✅ Kitchen scene variant 1
 │   │   └── room_background_2.png   # ✅ Kitchen scene variant 2
 │   ├── furniture/                  # Furniture and props

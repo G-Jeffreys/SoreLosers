@@ -9,11 +9,12 @@
 ## Recent Major Update: Visual Effects & UI Enhancement System
 
 ### Visual Effects Implementation Status
-- ✅ **Complete Egg Throwing Visuals**: On-screen splat overlays with scaling
+- ✅ **Complete Egg Throwing Visuals**: Realistic PNG graphics using `egg_splat_extra.png` asset
 - ✅ **Chat Panel Growth System**: Proper up/left growth with anchored positioning  
 - ✅ **Metadata-Based Cleanup**: Robust removal system for persistent effects
 - ✅ **Debug Testing Suite**: 5 comprehensive debug buttons for rapid testing
 - ✅ **Enhanced Logging**: Complete visibility into all visual system operations
+- ✅ **Kitchen Background Integration**: Authentic environment using `background.png` with aligned elements
 
 ### Visual Effects Architecture
 
@@ -22,24 +23,26 @@
 private Control overlayLayer;              // Container for all visual effects
 private Dictionary<string, Control> visualOverlays = new();  // Track active effects
 
-// Visual effect creation with metadata tagging
+// Visual effect creation with PNG asset integration
 private void CreateEggSplatVisual(int targetPlayerId, float throwPowerCoverage)
 {
-    var splatPanel = new Panel();
-    splatPanel.Name = "EggSplat";
-    splatPanel.SetMeta("IsEggSplat", true);  // Metadata for cleanup
+    // Load realistic egg splat texture
+    var splatTexture = GD.Load<Texture2D>("res://assets/sabotage/egg_splat_extra.png");
+    var splatTextureRect = new TextureRect();
+    splatTextureRect.Name = "EggSplat";
+    splatTextureRect.SetMeta("IsEggSplat", true);  // Metadata for cleanup
+    splatTextureRect.Texture = splatTexture;
     
     // Size scaling based on ThrowPower stat (15x base size = 3000px)
     float splatSize = 3000.0f * (throwPowerCoverage / 100.0f);
-    splatPanel.Size = new Vector2(splatSize, splatSize);
+    splatTextureRect.Size = new Vector2(splatSize, splatSize);
     
-    // Styling: yellow/orange with transparency and rounded corners
-    var styleBox = new StyleBoxFlat();
-    styleBox.BgColor = new Color(1.0f, 0.8f, 0.2f, 0.6f);
-    styleBox.CornerRadiusTopLeft = 50;
-    // ... additional styling
+    // Texture rendering configuration
+    splatTextureRect.ExpandMode = TextureRect.ExpandModeEnum.FitWidthProportional;
+    splatTextureRect.StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered;
+    splatTextureRect.Modulate = new Color(1.0f, 1.0f, 1.0f, 0.8f);  // Transparency
     
-    overlayLayer.AddChild(splatPanel);
+    overlayLayer.AddChild(splatTextureRect);
 }
 ```
 
