@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 /// <summary>
 /// Manages multiplayer networking using ENet for host/client connections
@@ -136,37 +137,44 @@ public partial class NetworkManager : Node
 
         // CRITICAL FIX: Set up multiplayer authority for host
         int hostId = multiplayerApi.GetUniqueId();
-        
+
         // Set host as authority for CardManager and other critical nodes
         SetupMultiplayerAuthority(hostId);
 
         // Update state
         IsHost = true;
         IsConnected = true;
-        
+
         GD.Print($"NetworkManager: HOST STATUS SET - IsHost: {IsHost}, IsClient: {IsClient}, IsConnected: {IsConnected}");
 
         // Add host to connected players
         ConnectedPlayers[hostId] = new PlayerNetworkData
         {
             PlayerId = hostId,
-            PlayerName = GameManager.Instance?.LocalPlayer?.PlayerName ?? "Host",
+            PlayerName = "Host", // Use clear host designation
             IsHost = true
         };
 
-        // Update GameManager's local player with the network ID
+        // CRITICAL FIX: Update GameManager's local player with the network ID but preserve the original name
         if (GameManager.Instance?.LocalPlayer != null)
         {
             int oldId = GameManager.Instance.LocalPlayer.PlayerId;
+            string originalName = GameManager.Instance.LocalPlayer.PlayerName;
 
-            // Update the local player with the network-assigned ID
+            // IMPORTANT: Update both ID and name to reflect network role
             GameManager.Instance.LocalPlayer.PlayerId = hostId;
-            GameManager.Instance.LocalPlayer.PlayerName = $"Host_Player_{hostId}";
+            GameManager.Instance.LocalPlayer.PlayerName = "Host"; // Clear host identification
 
-            // Re-add to connected players with correct ID
+            // Re-add to connected players with correct ID if changed
             if (oldId != hostId)
             {
+                GD.Print($"NetworkManager: HOST ID changed from {oldId} to {hostId}, updating ConnectedPlayers");
                 GameManager.Instance.ConnectedPlayers.Remove(oldId);
+                GameManager.Instance.AddPlayer(hostId, GameManager.Instance.LocalPlayer);
+            }
+            else
+            {
+                GD.Print($"NetworkManager: HOST ID unchanged ({hostId}), updating existing player");
                 GameManager.Instance.AddPlayer(hostId, GameManager.Instance.LocalPlayer);
             }
         }
@@ -305,33 +313,36 @@ public partial class NetworkManager : Node
     [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
     public void NetworkSyncPlayers(int[] playerIds, string[] playerNames)
     {
+        GD.Print("=== CRITICAL DEBUG: NetworkSyncPlayers RPC RECEIVED ===");
+        GD.Print($"NetworkManager: CLIENT received NetworkSyncPlayers RPC");
+        GD.Print($"NetworkManager: Sender ID: {GetTree().GetMultiplayer().GetRemoteSenderId()}");
+        GD.Print($"NetworkManager: My ID: {GetTree().GetMultiplayer().GetUniqueId()}");
+        GD.Print($"NetworkManager: IsHost: {IsHost}, IsClient: {IsClient}, IsConnected: {IsConnected}");
+
         if (playerIds.Length != playerNames.Length)
         {
             GD.PrintErr($"NetworkManager: Player sync arrays mismatch - IDs: {playerIds.Length}, Names: {playerNames.Length}");
             return;
         }
 
-        GD.Print($"NetworkManager: CLIENT received player sync with {playerIds.Length} players from host");
+        GD.Print($"NetworkManager: CLIENT received player sync with {playerIds.Length} players");
         for (int i = 0; i < playerIds.Length; i++)
         {
-            GD.Print($"  - Incoming Player {playerIds[i]}: {playerNames[i]}");
+            GD.Print($"  Player {i}: ID={playerIds[i]}, Name={playerNames[i]}");
         }
+
+        GD.Print($"NetworkManager: CLIENT local player ID before sync: {GameManager.Instance?.LocalPlayer?.PlayerId}");
 
         // Clear existing players except local player (to avoid removing ourselves)
         var localPlayerId = GameManager.Instance?.LocalPlayer?.PlayerId ?? -1;
         var playersToRemove = new List<int>();
-        
-        GD.Print($"NetworkManager: CLIENT local player ID is {localPlayerId}");
-        
+
         if (GameManager.Instance?.ConnectedPlayers != null)
         {
-            GD.Print($"NetworkManager: CLIENT existing players before sync:");
+            GD.Print($"NetworkManager: CLIENT current ConnectedPlayers before sync: [{string.Join(", ", GameManager.Instance.ConnectedPlayers.Keys)}]");
+
             foreach (var existingPlayerId in GameManager.Instance.ConnectedPlayers.Keys)
             {
-                var playerName = GameManager.Instance.ConnectedPlayers[existingPlayerId].PlayerName;
-                var isLocal = existingPlayerId == localPlayerId;
-                GD.Print($"  - Existing Player {existingPlayerId}: {playerName} (Local: {isLocal})");
-                
                 if (existingPlayerId != localPlayerId)
                 {
                     playersToRemove.Add(existingPlayerId);
@@ -339,9 +350,10 @@ public partial class NetworkManager : Node
             }
         }
 
+        GD.Print($"NetworkManager: CLIENT removing players: [{string.Join(", ", playersToRemove)}] (keeping local player {localPlayerId})");
+
         foreach (var playerId in playersToRemove)
         {
-            GD.Print($"NetworkManager: CLIENT removing non-local player {playerId}");
             GameManager.Instance?.RemovePlayer(playerId);
         }
 
@@ -354,7 +366,7 @@ public partial class NetworkManager : Node
             // Skip if this is our local player (already exists)
             if (playerId == localPlayerId)
             {
-                GD.Print($"NetworkManager: CLIENT skipping local player {playerId}");
+                GD.Print($"NetworkManager: CLIENT skipping local player {playerId} ({playerName})");
                 continue;
             }
 
@@ -383,16 +395,11 @@ public partial class NetworkManager : Node
             GD.Print($"NetworkManager: CLIENT synchronized player {playerName} (ID: {playerId})");
         }
 
-        // CRITICAL DEBUG: Log final state
-        GD.Print($"NetworkManager: CLIENT player synchronization complete - {GameManager.Instance?.ConnectedPlayers.Count} total players:");
-        if (GameManager.Instance?.ConnectedPlayers != null)
-        {
-            foreach (var kvp in GameManager.Instance.ConnectedPlayers)
-            {
-                var isLocal = kvp.Key == localPlayerId;
-                GD.Print($"  - Final Player {kvp.Key}: {kvp.Value.PlayerName} (Local: {isLocal})");
-            }
-        }
+        GD.Print($"NetworkManager: CLIENT player synchronization complete");
+        var finalPlayerIds = GameManager.Instance?.ConnectedPlayers?.Keys.ToArray() ?? new int[0];
+        GD.Print($"NetworkManager: CLIENT final ConnectedPlayers: [{string.Join(", ", finalPlayerIds)}]");
+        GD.Print($"NetworkManager: CLIENT final player count: {GameManager.Instance?.ConnectedPlayers?.Count ?? 0}");
+        GD.Print("=== END NetworkSyncPlayers RPC ===");
     }
 
     /// <summary>
@@ -467,7 +474,7 @@ public partial class NetworkManager : Node
     private void OnPeerConnected(long id)
     {
         int playerId = (int)id;
-        GD.Print($"NetworkManager: Peer {playerId} connected (Host: {IsHost})");
+        GD.Print($"NetworkManager: Peer {playerId} connected");
 
         // Add to connected players
         ConnectedPlayers[playerId] = new PlayerNetworkData
@@ -492,14 +499,6 @@ public partial class NetworkManager : Node
         if (GameManager.Instance != null)
         {
             GameManager.Instance.AddPlayer(playerId, playerData);
-            
-            // CRITICAL DEBUG: Log all connected players
-            GD.Print($"NetworkManager: All connected players after peer {playerId} joined:");
-            foreach (var kvp in GameManager.Instance.ConnectedPlayers)
-            {
-                var isLocal = kvp.Key == GameManager.Instance.LocalPlayer?.PlayerId;
-                GD.Print($"  - Player {kvp.Key}: {kvp.Value.PlayerName} (Local: {isLocal})");
-            }
 
             // REMOVED: Automatic transition to card phase when 2+ players connect
             // Let the host manually control when the game starts via the lobby UI
@@ -511,8 +510,7 @@ public partial class NetworkManager : Node
             // Send current game state to new player
             if (GameManager.Instance?.LocalPlayer != null)
             {
-                GD.Print($"NetworkManager: Host sending player data to new client {playerId}: {GameManager.Instance.LocalPlayer.PlayerName} (ID: {GameManager.Instance.LocalPlayer.PlayerId})");
-                
+                // CRITICAL FIX: Send primitive values, not complex objects
                 RpcId(playerId, MethodName.ReceivePlayerData,
                     GameManager.Instance.LocalPlayer.PlayerId,
                     GameManager.Instance.LocalPlayer.PlayerName);
@@ -553,37 +551,33 @@ public partial class NetworkManager : Node
         IsConnected = true;
         GD.Print($"NetworkManager: CLIENT CONNECTED TO SERVER - IsHost: {IsHost}, IsClient: {IsClient}, IsConnected: {IsConnected}");
 
-        // Update local player ID to use the multiplayer unique ID
+        // CRITICAL FIX: Update local player ID to use the multiplayer unique ID but preserve name for debugging
         if (GameManager.Instance?.LocalPlayer != null)
         {
             int networkPlayerId = GetTree().GetMultiplayer().GetUniqueId();
             int oldId = GameManager.Instance.LocalPlayer.PlayerId;
+            string originalName = GameManager.Instance.LocalPlayer.PlayerName;
 
             GD.Print($"NetworkManager: CLIENT updating player ID from {oldId} to {networkPlayerId}");
 
-            // Update the local player with the network-assigned ID
+            // IMPORTANT: Only update the ID, keep original distinguishable name
             GameManager.Instance.LocalPlayer.PlayerId = networkPlayerId;
-            GameManager.Instance.LocalPlayer.PlayerName = $"Client_Player_{networkPlayerId}";
+            GameManager.Instance.LocalPlayer.PlayerName = "Client"; // Clear client identification
 
-            // Re-add to connected players with correct ID
+            // Re-add to connected players with correct ID if changed
             if (oldId != networkPlayerId)
             {
+                GD.Print($"NetworkManager: CLIENT ID changed from {oldId} to {networkPlayerId}, updating ConnectedPlayers");
                 GameManager.Instance.ConnectedPlayers.Remove(oldId); // Remove old temp ID
                 GameManager.Instance.AddPlayer(networkPlayerId, GameManager.Instance.LocalPlayer);
-                
-                GD.Print($"NetworkManager: CLIENT removed old ID {oldId}, added new ID {networkPlayerId}");
             }
-
-            // CRITICAL DEBUG: Log all connected players after update
-            GD.Print($"NetworkManager: CLIENT all connected players after ID update:");
-            foreach (var kvp in GameManager.Instance.ConnectedPlayers)
+            else
             {
-                var isLocal = kvp.Key == GameManager.Instance.LocalPlayer?.PlayerId;
-                GD.Print($"  - Player {kvp.Key}: {kvp.Value.PlayerName} (Local: {isLocal})");
+                GD.Print($"NetworkManager: CLIENT ID unchanged ({networkPlayerId}), updating existing player");
+                GameManager.Instance.AddPlayer(networkPlayerId, GameManager.Instance.LocalPlayer);
             }
 
             // Send our updated player data to the server
-            GD.Print($"NetworkManager: CLIENT sending player data to host: {GameManager.Instance.LocalPlayer.PlayerName} (ID: {networkPlayerId})");
             SendPlayerData(GameManager.Instance.LocalPlayer);
         }
 

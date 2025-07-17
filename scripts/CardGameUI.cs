@@ -71,7 +71,7 @@ public partial class CardGameUI : Control
         scoreLabel = GetNode<Label>("CardTableView/GameArea/ScoreTimerPanel/ScoreLabel");
         playerHand = GetNode<VBoxContainer>("CardTableView/GameArea/PlayerHand");
         trickArea = GetNode<Control>("CardTableView/GameArea/CenterArea/TrickArea");
-        
+
         // Configure trick area to not clip contents (allow cards to extend beyond bounds)
         if (trickArea != null)
         {
@@ -187,31 +187,31 @@ public partial class CardGameUI : Control
         if (gameState.CurrentTrick.Count > 0)
         {
             GD.Print($"DEBUG: Displaying {gameState.CurrentTrick.Count} trick cards in center area");
-            
+
             // Calculate positioning for trick cards in center area
             // TrickArea is 200x100, cards are 100x140, so we'll arrange them clearly separated
             float cardWidth = trickCardSize.X;
             float cardHeight = trickCardSize.Y;
             float overlapSpacing = 20; // TRICK CARDS: No overlap - clear separation between cards (20px gap)
-            
+
             // Calculate total width needed and center position
             float totalWidthNeeded = (gameState.CurrentTrick.Count - 1) * overlapSpacing + cardWidth;
             Vector2 trickAreaSize = trickArea.Size; // Should be 200x100
             float startX = (trickAreaSize.X - totalWidthNeeded) / 2; // Center horizontally
             float cardY = (trickAreaSize.Y - cardHeight) / 2; // Center vertically (cards may extend above/below)
-            
+
             for (int i = 0; i < gameState.CurrentTrick.Count; i++)
             {
                 var cardPlay = gameState.CurrentTrick[i];
                 var cardButton = CreateTrickCardButton(cardPlay.Card, cardPlay.PlayerId);
                 cardButton.Name = $"TrickCard_{i}";
-                
+
                 // Position cards in a compact fan arrangement
                 Vector2 cardPos = new Vector2(startX + i * overlapSpacing, cardY);
                 cardButton.Position = cardPos;
-                
+
                 trickArea.AddChild(cardButton);
-                
+
                 // Force size after adding to scene tree (same as hand cards)
                 cardButton.Size = trickCardSize;
                 cardButton.CustomMinimumSize = trickCardSize;
@@ -223,18 +223,13 @@ public partial class CardGameUI : Control
     }
 
     /// <summary>
-    /// Update the display of all players' info (cards, scores, turn indicators)
+    /// Update the players info panel to show each player's status
     /// </summary>
     private void UpdatePlayersInfo()
     {
         if (cardManager == null || gameManager == null || !cardManager.GameInProgress) return;
 
         var gameState = cardManager.GetGameState();
-        var localPlayerId = gameManager?.LocalPlayer?.PlayerId ?? -1;
-
-        // CRITICAL DEBUG: Log game state information
-        GD.Print($"CardGameUI: UpdatePlayersInfo - CurrentPlayerTurn from game state: {gameState.CurrentPlayerTurn}");
-        GD.Print($"CardGameUI: UpdatePlayersInfo - Local player ID: {localPlayerId}");
 
         // Clear existing player info labels (but keep the title)
         foreach (var label in playerInfoLabels)
@@ -261,10 +256,6 @@ public partial class CardGameUI : Control
             // Check if it's this player's turn
             bool isCurrentTurn = gameState.CurrentPlayerTurn == playerId;
             string turnIndicator = isCurrentTurn ? " [TURN]" : "";
-            bool isLocal = playerId == localPlayerId;
-
-            // CRITICAL DEBUG: Log each player's status
-            GD.Print($"CardGameUI: Player {playerId} ({playerData.PlayerName}) - Turn: {isCurrentTurn}, Local: {isLocal}");
 
             // Get player location
             var location = gameManager.GetPlayerLocation(playerId);
@@ -277,7 +268,6 @@ public partial class CardGameUI : Control
             if (isCurrentTurn)
             {
                 playerInfoLabel.Modulate = Colors.Yellow;
-                GD.Print($"CardGameUI: Highlighting player {playerId} ({playerData.PlayerName}) as current turn");
             }
             else
             {
@@ -727,18 +717,18 @@ public partial class CardGameUI : Control
         // CRITICAL: Don't clip contents - allows cards to be larger than container bounds
         cardContainer.ClipContents = false;
         playerHand.AddChild(cardContainer);
-        
+
         // Wait one frame for container to get proper size
         await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        
+
         // FIXED: Use PlayerHand container size instead of inner container
         float cardWidth = cardSize.X;
         float cardHeight = cardSize.Y;
         float overlapSpacing = -50; // HAND CARDS: Overlap nicely for compact fan effect (50% overlap for 100px wide cards)
-        
+
         // Use the PlayerHand container's actual size (which we know has proper dimensions)
         Vector2 availableSize = playerHand.Size;
-        
+
         if (currentPlayerCards.Count <= 7)
         {
             // Single row - manually positioned at bottom center
@@ -751,16 +741,16 @@ public partial class CardGameUI : Control
                 var card = currentPlayerCards[i];
                 var cardButton = CreateCardButton(card, i);
                 cardButtons.Add(cardButton);
-                
+
                 // DIRECT POSITION CONTROL - bypassing all container constraints
                 Vector2 cardPos = new Vector2(startX + i * overlapSpacing, cardY);
                 cardButton.Position = cardPos;
                 cardContainer.AddChild(cardButton);
-                
+
                 // FORCE SIZE AFTER ADDING TO SCENE TREE - prevents container from overriding size
                 cardButton.Size = cardSize;
                 cardButton.CustomMinimumSize = cardSize;
-                
+
                 // FINAL ENFORCEMENT: Set size again after next frame processing
                 cardButton.CallDeferred(Control.MethodName.SetSize, cardSize);
             }
@@ -794,14 +784,14 @@ public partial class CardGameUI : Control
                     int bottomRowIndex = i - cardsPerRow;
                     cardPos = new Vector2(startX + bottomRowIndex * overlapSpacing, bottomRowY);
                 }
-                
+
                 cardButton.Position = cardPos;
                 cardContainer.AddChild(cardButton);
-                
+
                 // FORCE SIZE AFTER ADDING TO SCENE TREE - prevents container from overriding size
                 cardButton.Size = cardSize;
                 cardButton.CustomMinimumSize = cardSize;
-                
+
                 // FINAL ENFORCEMENT: Set size again after next frame processing
                 cardButton.CallDeferred(Control.MethodName.SetSize, cardSize);
             }
@@ -863,7 +853,7 @@ public partial class CardGameUI : Control
         }
 
         GD.Print($"CardGameUI: Successfully loaded {loadedCards}/52 card textures");
-        
+
         if (loadedCards < 52)
         {
             GD.PrintErr($"CardGameUI: Warning - Only loaded {loadedCards} out of 52 expected card textures!");
@@ -879,7 +869,7 @@ public partial class CardGameUI : Control
         string cardRank = rank switch
         {
             "two" => "Two",
-            "three" => "Three", 
+            "three" => "Three",
             "four" => "Four",
             "five" => "Five",
             "six" => "Six",
@@ -898,7 +888,7 @@ public partial class CardGameUI : Control
         {
             "clubs" => "Clubs",
             "diamonds" => "Diamonds",
-            "hearts" => "Hearts", 
+            "hearts" => "Hearts",
             "spades" => "Spades",
             _ => suit
         };
@@ -912,7 +902,7 @@ public partial class CardGameUI : Control
     private Texture2D GetCardTexture(Card card)
     {
         string cardKey = card.ToString();
-        
+
         if (cardTextures.ContainsKey(cardKey))
         {
             return cardTextures[cardKey];
@@ -933,7 +923,7 @@ public partial class CardGameUI : Control
     private TextureButton CreateCardButton(Card card, int index)
     {
         var cardButton = new TextureButton();
-        
+
         // Set card texture
         var cardTexture = GetCardTexture(card);
         if (cardTexture != null)
@@ -981,11 +971,11 @@ public partial class CardGameUI : Control
     private TextureButton CreateTrickCardButton(Card card, int playerId)
     {
         var cardButton = new TextureButton();
-        
+
         // Configure as display-only button
         cardButton.Disabled = true; // No clicking needed for trick cards
         cardButton.MouseFilter = Control.MouseFilterEnum.Ignore; // Don't interfere with other UI
-        
+
         // Set card texture
         var cardTexture = GetCardTexture(card);
         if (cardTexture != null)
@@ -1025,10 +1015,10 @@ public partial class CardGameUI : Control
     {
         // Use custom size if provided, otherwise use default card size
         Vector2 textureSize = customSize ?? cardSize;
-        
+
         // Create a simple ImageTexture as fallback - FIXED: Use CreateEmpty instead of Create
         var image = Image.CreateEmpty((int)textureSize.X, (int)textureSize.Y, false, Image.Format.Rgb8);
-        
+
         // Color based on suit
         Color cardColor = card.Suit switch
         {
@@ -1038,9 +1028,9 @@ public partial class CardGameUI : Control
             Suit.Spades => Colors.Black,
             _ => Colors.Gray
         };
-        
+
         image.Fill(cardColor);
-        
+
         var texture = ImageTexture.CreateFromImage(image);
         return texture;
     }
@@ -1106,32 +1096,19 @@ public partial class CardGameUI : Control
     /// <param name="playerId">Player whose turn started</param>
     private void OnTurnStarted(int playerId)
     {
-        var localPlayerId = gameManager?.LocalPlayer?.PlayerId ?? -1;
-        var localPlayerName = gameManager?.LocalPlayer?.PlayerName ?? "Unknown";
-        var turnPlayerData = gameManager?.GetPlayer(playerId);
-        var turnPlayerName = turnPlayerData?.PlayerName ?? "Unknown";
-        var isLocalTurn = localPlayerId == playerId;
-
-        GD.Print($"CardGameUI: Turn started for player {playerId} ({turnPlayerName})");
-        GD.Print($"CardGameUI: Local player is {localPlayerId} ({localPlayerName})");
-        GD.Print($"CardGameUI: Is local player's turn: {isLocalTurn}");
+        GD.Print($"CardGameUI: Turn started for player {playerId}");
 
         // Update UI to show whose turn it is
         if (gameManager != null && gameManager.LocalPlayer?.PlayerId == playerId)
         {
             // It's our turn - enable card interactions
-            GD.Print($"CardGameUI: Enabling card interactions for local player");
             SetCardsInteractable(true);
         }
         else
         {
             // Not our turn - disable card interactions
-            GD.Print($"CardGameUI: Disabling card interactions - not local player's turn");
             SetCardsInteractable(false);
         }
-
-        // Force update of players info to refresh turn indicators
-        UpdatePlayersInfo();
     }
 
     /// <summary>

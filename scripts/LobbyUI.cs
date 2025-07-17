@@ -42,7 +42,7 @@ public partial class LobbyUI : Control
 
         // Show appropriate UI based on host vs client
         bool isHost = GameManager.Instance.CurrentPhase == GameManager.GamePhase.HostLobby;
-        
+
         GD.Print($"LobbyUI: Phase check - CurrentPhase: {GameManager.Instance.CurrentPhase}, IsHost phase: {isHost}");
         GD.Print($"LobbyUI: NetworkManager status - IsHost: {GameManager.Instance.NetworkManager?.IsHost}, IsClient: {GameManager.Instance.NetworkManager?.IsClient}, IsConnected: {GameManager.Instance.NetworkManager?.IsConnected}");
 
@@ -148,7 +148,7 @@ public partial class LobbyUI : Control
         catch (Exception ex)
         {
             GD.PrintErr($"LobbyUI: Failed to start card game: {ex.Message}");
-            
+
             // Re-enable button on failure
             startGameButton.Disabled = false;
             startGameButton.Text = "Start Game";

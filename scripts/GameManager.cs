@@ -152,16 +152,16 @@ public partial class GameManager : Node
             // Use process ID + timestamp to create unique temporary player names
             int processId = OS.GetProcessId();
             long timestamp = (long)Time.GetUnixTimeFromSystem();
-            
+
             // Create a more unique identifier combining PID and timestamp
             string instanceId = $"{processId}_{timestamp % 10000}";
-            
+
             // Test if we can bind to the detection port (more reliable than UDP test)
             ushort testPort = 12345;
             var tcp = new TcpServer();
             bool isFirstInstance = tcp.Listen(testPort) == Error.Ok;
             tcp.Stop();
-            
+
             GD.Print($"GameManager: Instance detection - Process ID: {processId}, Timestamp: {timestamp}, Port test: {isFirstInstance}");
 
             if (isFirstInstance)
@@ -195,20 +195,29 @@ public partial class GameManager : Node
     /// </summary>
     private void SetupDebugNetworking()
     {
-        // Use a more reliable method to detect if we should host or connect
-        // Check if there's already a host running by trying to connect to the default port
-        bool hostExists = CheckIfHostExists();
+        GD.Print("GameManager: Setting up debug networking...");
 
-        if (!hostExists)
+        // Add a small delay to ensure the first instance has time to start hosting
+        GetTree().CreateTimer(0.2f).Timeout += () =>
         {
-            // No host found - start hosting
-            CallDeferred(MethodName.StartHosting);
-        }
-        else
-        {
-            // Host exists - connect as client
-            CallDeferred(MethodName.JoinGameAsClient);
-        }
+            // Use a more reliable method to detect if we should host or connect
+            bool hostExists = CheckIfHostExists();
+
+            GD.Print($"GameManager: Host detection result: {hostExists}");
+
+            if (!hostExists)
+            {
+                // No host found - start hosting
+                GD.Print("GameManager: Starting as HOST");
+                CallDeferred(MethodName.StartHosting);
+            }
+            else
+            {
+                // Host exists - connect as client
+                GD.Print("GameManager: Starting as CLIENT");
+                CallDeferred(MethodName.JoinGameAsClient);
+            }
+        };
     }
 
     /// <summary>
@@ -217,32 +226,32 @@ public partial class GameManager : Node
     /// <returns>True if host exists</returns>
     private bool CheckIfHostExists()
     {
-        // Use a lock file approach for more reliable host detection
-        string lockFilePath = OS.GetUserDataDir() + "/host.lock";
-
+        // CRITICAL FIX: Use simple ENet port test instead of complex async approach
+        // Try to create an ENet server on the default port to see if it's already in use
+        var testPeer = new ENetMultiplayerPeer();
         try
         {
-            // Try to create/open the lock file exclusively
-            using var file = FileAccess.Open(lockFilePath, FileAccess.ModeFlags.Write);
-            if (file == null)
+            var result = testPeer.CreateServer(7777, 1, 0, 0, 0);
+            if (result == Error.Ok)
             {
-                // File already exists and locked by another instance
+                // We successfully bound to the port, so no host exists
+                GD.Print("GameManager: No host detected via ENet port test - will become host");
+                testPeer.Close();
+                return false;
+            }
+            else
+            {
+                // Failed to bind, likely because port is in use by existing host
+                GD.Print("GameManager: Host detected via ENet port test - will join as client");
+                testPeer.Close();
                 return true;
             }
-
-            // We can create the file, so we should be the host
-            file.StoreString($"Host started at {Time.GetUnixTimeFromSystem()}");
-            file.Close();
-
-            // Store path for cleanup
-            hostLockFilePath = lockFilePath;
-
-            return false;
         }
         catch (Exception ex)
         {
-            GD.Print($"GameManager: Error checking host lock: {ex.Message} - defaulting to client");
-            return true; // Default to client if there's an error
+            GD.Print($"GameManager: ENet port test failed: {ex.Message} - defaulting to client");
+            testPeer?.Close();
+            return true; // Default to client if test fails
         }
     }
 
@@ -305,6 +314,11 @@ public partial class GameManager : Node
     public void AddPlayer(int playerId, PlayerData playerData)
     {
         bool isNewPlayer = !ConnectedPlayers.ContainsKey(playerId);
+
+        GD.Print($"GameManager: AddPlayer called - ID: {playerId}, Name: {playerData.PlayerName}, IsNew: {isNewPlayer}");
+        GD.Print($"GameManager: Current ConnectedPlayers before add: [{string.Join(", ", ConnectedPlayers.Keys)}]");
+        GD.Print($"GameManager: LocalPlayer ID: {LocalPlayer?.PlayerId}, Name: {LocalPlayer?.PlayerName}");
+
         if (!isNewPlayer)
         {
             GD.Print($"GameManager: Player ID {playerId} already exists! Updating data.");
@@ -316,13 +330,18 @@ public partial class GameManager : Node
         if (isNewPlayer)
         {
             PlayerLocations[playerId] = PlayerLocation.AtTable;
+            GD.Print($"GameManager: Set new player {playerId} location to AtTable");
         }
 
         // Only emit player joined signal for truly new players
         if (isNewPlayer)
         {
             EmitSignal(SignalName.PlayerJoined, playerId, playerData);
+            GD.Print($"GameManager: Emitted PlayerJoined signal for new player {playerId}");
         }
+
+        GD.Print($"GameManager: Final ConnectedPlayers after add: [{string.Join(", ", ConnectedPlayers.Keys)}]");
+        GD.Print($"GameManager: Final ConnectedPlayers count: {ConnectedPlayers.Count}");
     }
 
     /// <summary>
@@ -474,7 +493,7 @@ public partial class GameManager : Node
     public void StartHosting()
     {
         GD.Print($"GameManager: StartHosting called - LocalPlayer: {LocalPlayer?.PlayerName} (ID: {LocalPlayer?.PlayerId})");
-        
+
         // Start hosting through NetworkManager
         if (NetworkManager != null)
         {
@@ -484,7 +503,7 @@ public partial class GameManager : Node
                 GD.PrintErr("GameManager: Failed to start hosting");
                 return;
             }
-            
+
             GD.Print($"GameManager: Hosting started successfully - Room code: {roomCode}");
         }
 
@@ -493,7 +512,7 @@ public partial class GameManager : Node
 
         // Add local player as host
         AddPlayer(LocalPlayer.PlayerId, LocalPlayer);
-        
+
         GD.Print($"GameManager: Host lobby setup complete - Phase: {CurrentPhase}");
     }
 
@@ -504,7 +523,7 @@ public partial class GameManager : Node
     public void JoinGame(string roomCode)
     {
         GD.Print($"GameManager: JoinGame called - LocalPlayer: {LocalPlayer?.PlayerName} (ID: {LocalPlayer?.PlayerId}), RoomCode: {roomCode}");
-        
+
         // Validate room code
         if (NetworkManager == null || !NetworkManager.IsValidRoomCode(roomCode))
         {
@@ -517,7 +536,7 @@ public partial class GameManager : Node
 
         // Connect to the game using NetworkManager
         NetworkManager.ConnectToGame(roomCode);
-        
+
         GD.Print($"GameManager: Client connection initiated - Phase: {CurrentPhase}");
     }
 
@@ -557,46 +576,29 @@ public partial class GameManager : Node
             return;
         }
 
-        // CRITICAL DEBUG: Log initial state
-        GD.Print($"GameManager: StartCardManagerGame called with {playerIds.Length} players");
-        GD.Print($"GameManager: Network state - IsConnected: {NetworkManager?.IsConnected}, IsHost: {NetworkManager?.IsHost}");
-        GD.Print($"GameManager: Local player: {LocalPlayer?.PlayerId} ({LocalPlayer?.PlayerName})");
-        
-        // Log incoming player IDs
-        for (int i = 0; i < playerIds.Length; i++)
-        {
-            var playerData = GetPlayer(playerIds[i]);
-            var isLocal = LocalPlayer?.PlayerId == playerIds[i];
-            GD.Print($"  - Input Player {i}: {playerIds[i]} ({playerData?.PlayerName ?? "Unknown"}) (Local: {isLocal})");
-        }
-
-        // Create final player list and add AI players to fill up to 4 total players
+        // CRITICAL FIX: Create deterministic player list sorted by ID to ensure consistent order
         var finalPlayerIds = new List<int>(playerIds);
+        finalPlayerIds.Sort(); // Sort to ensure consistent order across instances
+
+        GD.Print($"GameManager: StartCardManagerGame with sorted players: [{string.Join(", ", finalPlayerIds)}]");
 
         // CRITICAL FIX: Only HOST creates and manages AI players
         if (NetworkManager != null && NetworkManager.IsConnected)
         {
             if (NetworkManager.IsHost)
             {
-                GD.Print($"GameManager: HOST - Creating AI players and syncing to clients");
-                
                 // Host: Create AI players and synchronize complete player list to clients
                 CreateAndSyncAIPlayers(finalPlayerIds);
-                
-                // CRITICAL DEBUG: Log final player list before starting game
-                GD.Print($"GameManager: HOST - Final player list before CardManager.StartGame:");
-                for (int i = 0; i < finalPlayerIds.Count; i++)
-                {
-                    var playerData = GetPlayer(finalPlayerIds[i]);
-                    var isLocal = LocalPlayer?.PlayerId == finalPlayerIds[i];
-                    GD.Print($"  - Final Player {i}: {finalPlayerIds[i]} ({playerData?.PlayerName ?? "Unknown"}) (Local: {isLocal})");
-                }
-                
+
                 // CRITICAL FIX: Add delay to ensure NetworkSyncPlayers RPC completes before NetworkStartGame
-                GetTree().CreateTimer(0.1f).Timeout += () => 
+                GetTree().CreateTimer(0.5f).Timeout += () => // Increased from 0.1f to 0.5f
                 {
-                    GD.Print("GameManager: HOST - Starting card game after player sync delay");
+                    GD.Print("=== CRITICAL DEBUG: STARTING CARD GAME AFTER SYNC DELAY ===");
+                    GD.Print("GameManager: Starting card game after player sync delay");
+                    GD.Print($"GameManager: Final ConnectedPlayers count: {ConnectedPlayers.Count}");
+                    GD.Print($"GameManager: Final ConnectedPlayers: [{string.Join(", ", ConnectedPlayers.Keys)}]");
                     CardManager.StartGame(finalPlayerIds);
+                    GD.Print("=== END STARTING CARD GAME ===");
                 };
             }
             else
@@ -608,20 +610,8 @@ public partial class GameManager : Node
         }
         else
         {
-            GD.Print($"GameManager: SINGLE PLAYER - Creating AI players locally");
-            
             // Single-player game: Create AI players locally
             CreateAIPlayersLocally(finalPlayerIds);
-            
-            // CRITICAL DEBUG: Log final player list for single-player
-            GD.Print($"GameManager: SINGLE PLAYER - Final player list:");
-            for (int i = 0; i < finalPlayerIds.Count; i++)
-            {
-                var playerData = GetPlayer(finalPlayerIds[i]);
-                var isLocal = LocalPlayer?.PlayerId == finalPlayerIds[i];
-                GD.Print($"  - Final Player {i}: {finalPlayerIds[i]} ({playerData?.PlayerName ?? "Unknown"}) (Local: {isLocal})");
-            }
-            
             CardManager.StartGame(finalPlayerIds);
         }
     }
@@ -633,17 +623,10 @@ public partial class GameManager : Node
     private void CreateAndSyncAIPlayers(List<int> finalPlayerIds)
     {
         GD.Print($"GameManager: HOST creating AI players to fill {4 - finalPlayerIds.Count} slots");
-        GD.Print($"GameManager: HOST current player list before AI creation:");
-        for (int i = 0; i < finalPlayerIds.Count; i++)
-        {
-            var playerData = GetPlayer(finalPlayerIds[i]);
-            var isLocal = LocalPlayer?.PlayerId == finalPlayerIds[i];
-            GD.Print($"  - Existing Player {i}: {finalPlayerIds[i]} ({playerData?.PlayerName ?? "Unknown"}) (Local: {isLocal})");
-        }
+        GD.Print($"GameManager: HOST starting with {finalPlayerIds.Count} real players: [{string.Join(", ", finalPlayerIds)}]");
 
         // Add AI players with IDs that don't conflict with real players
         int nextAiId = 100; // Start AI IDs at 100 to avoid conflicts
-        int aiCount = 0;
         while (finalPlayerIds.Count < 4)
         {
             // Find next available AI ID
@@ -667,12 +650,13 @@ public partial class GameManager : Node
             // Add AI player to ConnectedPlayers so it's tracked properly
             AddPlayer(nextAiId, aiPlayerData);
 
-            GD.Print($"GameManager: HOST created AI player {aiPlayerData.PlayerName} (ID: {nextAiId}) - Position {finalPlayerIds.Count - 1}");
+            GD.Print($"GameManager: HOST created AI player {aiPlayerData.PlayerName} (ID: {nextAiId})");
             nextAiId++;
-            aiCount++;
         }
 
-        GD.Print($"GameManager: HOST created {aiCount} AI players. Final player count: {finalPlayerIds.Count}");
+        // CRITICAL FIX: Sort the final list to ensure deterministic order
+        finalPlayerIds.Sort();
+        GD.Print($"GameManager: HOST final sorted player list: [{string.Join(", ", finalPlayerIds)}]");
 
         // Synchronize complete player list to all clients
         SyncPlayersToClients();
@@ -720,25 +704,40 @@ public partial class GameManager : Node
     {
         if (NetworkManager == null || !NetworkManager.IsConnected || !NetworkManager.IsHost)
         {
+            GD.Print("GameManager: Skipping SyncPlayersToClients - not host or not connected");
             return;
         }
 
-        // Prepare arrays for RPC
+        // CRITICAL FIX: Prepare arrays in sorted order for deterministic sync
+        var sortedPlayerIds = ConnectedPlayers.Keys.ToList();
+        sortedPlayerIds.Sort(); // Ensure consistent order
+
         var playerIds = new List<int>();
         var playerNames = new List<string>();
 
-        foreach (var kvp in ConnectedPlayers)
+        foreach (var playerId in sortedPlayerIds)
         {
-            playerIds.Add(kvp.Key);
-            playerNames.Add(kvp.Value.PlayerName);
+            playerIds.Add(playerId);
+            playerNames.Add(ConnectedPlayers[playerId].PlayerName);
         }
 
-        GD.Print($"GameManager: Syncing {playerIds.Count} players to clients: [{string.Join(", ", playerNames)}]");
+        GD.Print($"GameManager: HOST syncing {playerIds.Count} players to clients in sorted order:");
+        for (int i = 0; i < playerIds.Count; i++)
+        {
+            GD.Print($"  - Player {playerIds[i]}: {playerNames[i]}");
+        }
+
+        GD.Print("=== CRITICAL DEBUG: SENDING NetworkSyncPlayers RPC ===");
+        GD.Print($"GameManager: HOST about to send NetworkSyncPlayers RPC to all clients");
+        GD.Print($"GameManager: HOST NetworkManager.IsHost: {NetworkManager.IsHost}, IsConnected: {NetworkManager.IsConnected}");
 
         // Send player sync to all clients
-        NetworkManager.Rpc(NetworkManager.MethodName.NetworkSyncPlayers, 
-            playerIds.ToArray(), 
+        NetworkManager.Rpc(NetworkManager.MethodName.NetworkSyncPlayers,
+            playerIds.ToArray(),
             playerNames.ToArray());
+
+        GD.Print("GameManager: HOST NetworkSyncPlayers RPC sent to all clients");
+        GD.Print("=== END SENDING NetworkSyncPlayers RPC ===");
     }
 
     /// <summary>

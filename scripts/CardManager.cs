@@ -136,7 +136,7 @@ public partial class CardManager : Node
     public void StartGame(List<int> playerIds)
     {
         GD.Print($"CardManager: Starting game with {playerIds.Count} players: [{string.Join(", ", playerIds)}]");
-        
+
         var gameManager = GameManager.Instance;
         var networkManager = gameManager?.NetworkManager;
 
@@ -157,7 +157,7 @@ public partial class CardManager : Node
                 catch (Exception ex)
                 {
                     GD.PrintErr($"CardManager: Failed to send NetworkStartGame RPC: {ex.Message}");
-                    
+
                     // Fallback: start game locally if RPC fails
                     ExecuteGameStart(playerIds);
                 }
@@ -183,10 +183,44 @@ public partial class CardManager : Node
     [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = true, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
     public void NetworkStartGame(int[] playerIds)
     {
+        GD.Print("=== CRITICAL DEBUG: NetworkStartGame RPC RECEIVED ===");
         GD.Print($"CardManager: Received NetworkStartGame RPC with {playerIds.Length} players");
-        
-        // Additional validation: only process if sent by host (ID 1) or if we're offline
+        GD.Print($"CardManager: Sender ID: {GetTree().GetMultiplayer().GetRemoteSenderId()}");
+        GD.Print($"CardManager: My ID: {GetTree().GetMultiplayer().GetUniqueId()}");
+
         var networkManager = GameManager.Instance?.NetworkManager;
+        GD.Print($"CardManager: NetworkManager status - IsHost: {networkManager?.IsHost}, IsClient: {networkManager?.IsClient}, IsConnected: {networkManager?.IsConnected}");
+
+        GD.Print($"CardManager: Received player IDs: [{string.Join(", ", playerIds)}]");
+
+        // Check current ConnectedPlayers state
+        if (GameManager.Instance?.ConnectedPlayers != null)
+        {
+            var currentPlayers = GameManager.Instance.ConnectedPlayers.Keys.ToArray();
+            GD.Print($"CardManager: Current ConnectedPlayers: [{string.Join(", ", currentPlayers)}]");
+
+            // Check if all received players exist in ConnectedPlayers
+            bool allPlayersExist = true;
+            foreach (int playerId in playerIds)
+            {
+                if (!GameManager.Instance.ConnectedPlayers.ContainsKey(playerId))
+                {
+                    GD.PrintErr($"CardManager: MISSING PLAYER {playerId} in ConnectedPlayers!");
+                    allPlayersExist = false;
+                }
+            }
+
+            if (!allPlayersExist)
+            {
+                GD.PrintErr("CardManager: NOT ALL PLAYERS EXIST - SYNC FAILED!");
+            }
+            else
+            {
+                GD.Print("CardManager: All players exist in ConnectedPlayers - sync successful");
+            }
+        }
+
+        // Additional validation: only process if sent by host (ID 1) or if we're offline
         if (networkManager != null && networkManager.IsConnected)
         {
             int senderId = GetTree().GetMultiplayer().GetRemoteSenderId();
@@ -196,8 +230,10 @@ public partial class CardManager : Node
                 return;
             }
         }
-        
+
+        GD.Print("=== CALLING ExecuteGameStart ===");
         ExecuteGameStart(playerIds.ToList());
+        GD.Print("=== END NetworkStartGame RPC ===");
     }
 
     /// <summary>
@@ -212,38 +248,26 @@ public partial class CardManager : Node
             return;
         }
 
+        GD.Print($"CardManager: ExecuteGameStart called with {playerIds.Count} players: [{string.Join(", ", playerIds)}]");
+
         // CRITICAL FIX: No longer create AI players here - they are synchronized via NetworkSyncPlayers RPC
         var gameManager = GameManager.Instance;
-        var networkManager = gameManager?.NetworkManager;
-        
-        // CRITICAL DEBUG: Log current network state
-        if (networkManager != null && networkManager.IsConnected)
-        {
-            GD.Print($"CardManager: ExecuteGameStart - IsHost: {networkManager.IsHost}, LocalPlayer: {gameManager?.LocalPlayer?.PlayerId}");
-        }
-        else
-        {
-            GD.Print($"CardManager: ExecuteGameStart - Single player mode");
-        }
-        
-        // CRITICAL DEBUG: Log all players being added to game
-        GD.Print($"CardManager: Setting up game with {playerIds.Count} players:");
-        for (int i = 0; i < playerIds.Count; i++)
-        {
-            var playerId = playerIds[i];
-            var playerData = gameManager?.GetPlayer(playerId);
-            var isLocal = gameManager?.LocalPlayer?.PlayerId == playerId;
-            GD.Print($"  - Position {i}: Player {playerId} ({playerData?.PlayerName ?? "Unknown"}) (Local: {isLocal})");
-        }
-        
         if (gameManager != null)
         {
+            GD.Print($"CardManager: Validating players exist in GameManager ConnectedPlayers");
+            GD.Print($"CardManager: GameManager.ConnectedPlayers: [{string.Join(", ", gameManager.ConnectedPlayers.Keys)}]");
+
             // Validate that all players exist in ConnectedPlayers (they should be synchronized by now)
             foreach (int playerId in playerIds)
             {
                 if (!gameManager.ConnectedPlayers.ContainsKey(playerId))
                 {
                     GD.PrintErr($"CardManager: Player {playerId} not found in ConnectedPlayers! Game sync may have failed.");
+                }
+                else
+                {
+                    var playerData = gameManager.ConnectedPlayers[playerId];
+                    GD.Print($"CardManager: Player {playerId} validated: {playerData.PlayerName}");
                 }
             }
         }
@@ -256,11 +280,9 @@ public partial class CardManager : Node
         GameInProgress = true;
         TricksPlayed = 0;
 
-        // CRITICAL DEBUG: Log initial turn state
-        var currentPlayer = PlayerOrder[CurrentPlayerTurn];
-        var currentPlayerData = gameManager?.GetPlayer(currentPlayer);
-        var isCurrentLocal = gameManager?.LocalPlayer?.PlayerId == currentPlayer;
-        GD.Print($"CardManager: Game started - First turn: Player {currentPlayer} ({currentPlayerData?.PlayerName ?? "Unknown"}) (Local: {isCurrentLocal})");
+        GD.Print($"CardManager: Game initialized with PlayerOrder: [{string.Join(", ", PlayerOrder)}]");
+        GD.Print($"CardManager: CurrentPlayerTurn index: {CurrentPlayerTurn}, Player ID: {PlayerOrder[CurrentPlayerTurn]}");
+        GD.Print($"CardManager: Host/Client status - NetworkManager.IsHost: {GameManager.Instance?.NetworkManager?.IsHost}, IsConnected: {GameManager.Instance?.NetworkManager?.IsConnected}");
 
         // Initialize player hands and scores
         PlayerHands.Clear();
@@ -271,6 +293,8 @@ public partial class CardManager : Node
             PlayerHands[playerId] = new List<Card>();
             PlayerScores[playerId] = 0;
         }
+
+        GD.Print($"CardManager: Initialized hands and scores for {playerIds.Count} players");
 
         // Deal first hand
         DealNewHand();
@@ -312,6 +336,7 @@ public partial class CardManager : Node
     private void HostDealAndSyncCards()
     {
         GD.Print("CardManager: HOST dealing cards and syncing to clients");
+        GD.Print($"CardManager: HOST using PlayerOrder: [{string.Join(", ", PlayerOrder)}]");
 
         // Reset deck and shuffle
         InitializeDeck();
@@ -335,6 +360,8 @@ public partial class CardManager : Node
                     PlayerHands[playerId].Add(card);
                 }
             }
+
+            GD.Print($"CardManager: HOST dealt {PlayerHands[playerId].Count} cards to player {playerId}");
         }
 
         // CRITICAL FIX: Sync dealt hands to all clients
@@ -346,6 +373,8 @@ public partial class CardManager : Node
         // Start first trick
         CurrentTrickLeader = GetNextDealer();
         CurrentPlayerTurn = CurrentTrickLeader;
+
+        GD.Print($"CardManager: HOST starting turn - TrickLeader: {CurrentTrickLeader}, CurrentTurn: {CurrentPlayerTurn}, Player: {PlayerOrder[CurrentPlayerTurn]}");
 
         StartTurn();
     }
@@ -363,16 +392,17 @@ public partial class CardManager : Node
             return;
         }
 
-        // Prepare flattened data for RPC (Godot doesn't support 2D arrays)
+        // CRITICAL FIX: Use PlayerOrder for consistent sync, not PlayerHands.Keys
         var playerIds = new List<int>();
         var playerCardCounts = new List<int>();
         var allCardSuits = new List<int>();
         var allCardRanks = new List<int>();
 
-        foreach (var kvp in PlayerHands)
+        GD.Print($"CardManager: HOST syncing cards using PlayerOrder: [{string.Join(", ", PlayerOrder)}]");
+
+        foreach (var playerId in PlayerOrder) // Use PlayerOrder instead of PlayerHands.Keys
         {
-            int playerId = kvp.Key;
-            var hand = kvp.Value;
+            var hand = PlayerHands[playerId];
 
             playerIds.Add(playerId);
             playerCardCounts.Add(hand.Count);
@@ -383,15 +413,17 @@ public partial class CardManager : Node
                 allCardSuits.Add((int)hand[i].Suit);
                 allCardRanks.Add((int)hand[i].Rank);
             }
+
+            GD.Print($"CardManager: HOST syncing {hand.Count} cards for player {playerId}");
         }
 
-        GD.Print($"CardManager: Syncing dealt hands to all clients - {playerIds.Count} players, {allCardSuits.Count} total cards");
+        GD.Print($"CardManager: HOST sending card sync - {playerIds.Count} players, {allCardSuits.Count} total cards");
 
         // Send to all clients with flattened arrays
-        Rpc("NetworkSyncDealtHands", 
-            playerIds.ToArray(), 
+        Rpc("NetworkSyncDealtHands",
+            playerIds.ToArray(),
             playerCardCounts.ToArray(),
-            allCardSuits.ToArray(), 
+            allCardSuits.ToArray(),
             allCardRanks.ToArray(),
             CurrentTrickLeader,
             CurrentPlayerTurn);
@@ -411,45 +443,44 @@ public partial class CardManager : Node
     {
         GD.Print($"CardManager: CLIENT received dealt hands from host - {playerIds.Length} players");
 
-        // CRITICAL DEBUG: Log incoming player order
-        GD.Print($"CardManager: CLIENT incoming PlayerOrder from host:");
-        for (int i = 0; i < playerIds.Length; i++)
-        {
-            var gameManager = GameManager.Instance;
-            var playerData = gameManager?.GetPlayer(playerIds[i]);
-            var isLocal = gameManager?.LocalPlayer?.PlayerId == playerIds[i];
-            GD.Print($"  - Position {i}: Player {playerIds[i]} ({playerData?.PlayerName ?? "Unknown"}) (Local: {isLocal})");
-        }
+        // CRITICAL DEBUG: Check current PlayerOrder before sync
+        GD.Print($"CardManager: CLIENT PlayerOrder BEFORE sync: [{string.Join(", ", PlayerOrder)}]");
+        GD.Print($"CardManager: CLIENT received PlayerOrder from host: [{string.Join(", ", playerIds)}]");
+
+        bool shouldUpdateOrder = false;
+        string updateReason = "";
 
         // CRITICAL FIX: Ensure PlayerOrder is synchronized first
         if (PlayerOrder.Count != playerIds.Length)
         {
-            GD.Print($"CardManager: CLIENT updating PlayerOrder from host - {playerIds.Length} players");
+            shouldUpdateOrder = true;
+            updateReason = $"count mismatch - {PlayerOrder.Count} vs {playerIds.Length}";
+        }
+        else
+        {
+            // Check if the order is different even if the count is the same
+            for (int i = 0; i < PlayerOrder.Count; i++)
+            {
+                if (PlayerOrder[i] != playerIds[i])
+                {
+                    shouldUpdateOrder = true;
+                    updateReason = $"order differs at index {i} - {PlayerOrder[i]} vs {playerIds[i]}";
+                    break;
+                }
+            }
+        }
+
+        if (shouldUpdateOrder)
+        {
+            GD.Print($"CardManager: CLIENT updating PlayerOrder - {updateReason}");
             PlayerOrder = new List<int>(playerIds);
         }
         else
         {
-            // Even if count matches, ensure exact order matches
-            bool orderMatches = true;
-            for (int i = 0; i < playerIds.Length; i++)
-            {
-                if (PlayerOrder[i] != playerIds[i])
-                {
-                    orderMatches = false;
-                    break;
-                }
-            }
-            
-            if (!orderMatches)
-            {
-                GD.Print($"CardManager: CLIENT player order differs, updating from host");
-                PlayerOrder = new List<int>(playerIds);
-            }
-            else
-            {
-                GD.Print($"CardManager: CLIENT player order matches host");
-            }
+            GD.Print($"CardManager: CLIENT PlayerOrder already matches host");
         }
+
+        GD.Print($"CardManager: CLIENT PlayerOrder AFTER sync: [{string.Join(", ", PlayerOrder)}]");
 
         // Clear current hands
         PlayerHands.Clear();
@@ -481,18 +512,16 @@ public partial class CardManager : Node
         CurrentTrickLeader = trickLeader;
         CurrentPlayerTurn = currentTurn;
 
-        // CRITICAL DEBUG: Log synchronized turn state
-        var gameManager2 = GameManager.Instance;
-        var currentPlayer = PlayerOrder[CurrentPlayerTurn];
-        var currentPlayerData = gameManager2?.GetPlayer(currentPlayer);
-        var isCurrentLocal = gameManager2?.LocalPlayer?.PlayerId == currentPlayer;
-        GD.Print($"CardManager: CLIENT game state synchronized - Leader: {CurrentTrickLeader}, Turn: {CurrentPlayerTurn}, Current Player: {currentPlayer} ({currentPlayerData?.PlayerName ?? "Unknown"}) (Local: {isCurrentLocal})");
+        GD.Print($"CardManager: CLIENT game state synchronized - Leader: {CurrentTrickLeader}, Turn: {CurrentPlayerTurn}, Current Player: {(PlayerOrder.Count > CurrentPlayerTurn ? PlayerOrder[CurrentPlayerTurn] : -1)}");
 
         // Notify UI that cards have been dealt
         EmitSignal(SignalName.HandDealt);
 
         // Start turn (but don't start timer - host manages that)
-        EmitSignal(SignalName.TurnStarted, PlayerOrder[CurrentPlayerTurn]);
+        if (PlayerOrder.Count > CurrentPlayerTurn)
+        {
+            EmitSignal(SignalName.TurnStarted, PlayerOrder[CurrentPlayerTurn]);
+        }
     }
 
     /// <summary>
@@ -504,21 +533,10 @@ public partial class CardManager : Node
 
         var gameManager = GameManager.Instance;
         var networkManager = gameManager?.NetworkManager;
-        var currentPlayerData = gameManager?.GetPlayer(currentPlayerId);
-        var isCurrentLocal = gameManager?.LocalPlayer?.PlayerId == currentPlayerId;
-
-        // CRITICAL DEBUG: Log turn start details
-        GD.Print($"CardManager: StartTurn called - Player {currentPlayerId} ({currentPlayerData?.PlayerName ?? "Unknown"}) (Local: {isCurrentLocal}) (Position {CurrentPlayerTurn}/{PlayerOrder.Count})");
-        
-        if (networkManager != null && networkManager.IsConnected)
-        {
-            GD.Print($"CardManager: Network mode - IsHost: {networkManager.IsHost}");
-        }
 
         // If networked, only host manages turn timing
         if (networkManager != null && networkManager.IsConnected && !networkManager.IsHost)
         {
-            GD.Print($"CardManager: CLIENT - Starting turn for player {currentPlayerId} (waiting for host timer)");
             EmitSignal(SignalName.TurnStarted, currentPlayerId);
             return;
         }
@@ -529,24 +547,37 @@ public partial class CardManager : Node
             var playerData = gameManager.GetPlayer(currentPlayerId);
             if (playerData != null && playerData.PlayerName.StartsWith("AI_"))
             {
-                GD.Print($"CardManager: HOST - AI turn for {playerData.PlayerName} (ID: {currentPlayerId})");
+                GD.Print($"CardManager: AI turn detected for {playerData.PlayerName} (ID: {currentPlayerId})");
+                GD.Print($"CardManager: NetworkManager status - IsHost: {networkManager?.IsHost}, IsConnected: {networkManager?.IsConnected}");
 
                 // Auto-play after consistent delay for synchronization
-                GetTree().CreateTimer(0.5f).Timeout += () => AutoPlayAITurn(currentPlayerId);
+                GetTree().CreateTimer(0.5f).Timeout += () =>
+                {
+                    GD.Print($"CardManager: Starting AutoPlayAITurn for {playerData.PlayerName} (ID: {currentPlayerId})");
+                    AutoPlayAITurn(currentPlayerId);
+                };
 
                 // Broadcast turn start to clients
                 if (networkManager != null && networkManager.IsConnected)
                 {
+                    GD.Print($"CardManager: Broadcasting AI turn start for {playerData.PlayerName} to clients");
                     Rpc(MethodName.NetworkTurnStarted, currentPlayerId);
                 }
 
                 EmitSignal(SignalName.TurnStarted, currentPlayerId);
                 return;
             }
+            else if (playerData != null)
+            {
+                GD.Print($"CardManager: Human player turn for {playerData.PlayerName} (ID: {currentPlayerId})");
+            }
+            else
+            {
+                GD.PrintErr($"CardManager: No player data found for ID {currentPlayerId}!");
+            }
         }
 
         // Start turn timer for human players (host only)
-        GD.Print($"CardManager: HOST - Starting timer for human player {currentPlayerId}");
         if (turnTimer != null)
         {
             timerActive = true;
@@ -556,7 +587,6 @@ public partial class CardManager : Node
         // Broadcast turn start to clients
         if (networkManager != null && networkManager.IsConnected)
         {
-            GD.Print($"CardManager: HOST - Broadcasting turn start to clients for player {currentPlayerId}");
             Rpc(MethodName.NetworkTurnStarted, currentPlayerId);
         }
 
@@ -590,12 +620,6 @@ public partial class CardManager : Node
     private void EndTurn()
     {
         int currentPlayerId = PlayerOrder[CurrentPlayerTurn];
-        var gameManager = GameManager.Instance;
-        var currentPlayerData = gameManager?.GetPlayer(currentPlayerId);
-        var isCurrentLocal = gameManager?.LocalPlayer?.PlayerId == currentPlayerId;
-
-        // CRITICAL DEBUG: Log turn end
-        GD.Print($"CardManager: EndTurn - Player {currentPlayerId} ({currentPlayerData?.PlayerName ?? "Unknown"}) (Local: {isCurrentLocal}) finished turn");
 
         // Stop turn timer
         if (turnTimer != null && timerActive)
@@ -607,24 +631,15 @@ public partial class CardManager : Node
         EmitSignal(SignalName.TurnEnded, currentPlayerId);
 
         // Move to next player
-        int previousTurn = CurrentPlayerTurn;
         CurrentPlayerTurn = (CurrentPlayerTurn + 1) % PlayerOrder.Count;
-        
-        // CRITICAL DEBUG: Log turn transition
-        int nextPlayerId = PlayerOrder[CurrentPlayerTurn];
-        var nextPlayerData = gameManager?.GetPlayer(nextPlayerId);
-        var isNextLocal = gameManager?.LocalPlayer?.PlayerId == nextPlayerId;
-        GD.Print($"CardManager: Turn transition from position {previousTurn} to {CurrentPlayerTurn} - Next player: {nextPlayerId} ({nextPlayerData?.PlayerName ?? "Unknown"}) (Local: {isNextLocal})");
 
         // Check if trick is complete
         if (CurrentTrick.Count == PlayerOrder.Count)
         {
-            GD.Print($"CardManager: Trick complete with {CurrentTrick.Count} cards - calling CompleteTrick()");
             CompleteTrick();
         }
         else
         {
-            GD.Print($"CardManager: Trick continuing - {CurrentTrick.Count}/{PlayerOrder.Count} cards played - calling StartTurn()");
             StartTurn();
         }
     }
@@ -923,17 +938,37 @@ public partial class CardManager : Node
     /// <param name="playerId">AI player ID</param>
     private void AutoPlayAITurn(int playerId)
     {
+        GD.Print($"CardManager: AutoPlayAITurn called for player {playerId}");
+        GD.Print($"CardManager: GameInProgress: {GameInProgress}, CurrentPlayerTurn: {CurrentPlayerTurn}, PlayerOrder[CurrentPlayerTurn]: {(PlayerOrder.Count > CurrentPlayerTurn ? PlayerOrder[CurrentPlayerTurn] : -1)}");
+
         if (!GameInProgress || PlayerOrder[CurrentPlayerTurn] != playerId)
         {
-            GD.PrintErr($"CardManager: Cannot auto-play for player {playerId} - not their turn");
+            GD.PrintErr($"CardManager: Cannot auto-play for player {playerId} - not their turn or game not in progress");
+            GD.PrintErr($"CardManager: GameInProgress: {GameInProgress}, Expected player: {playerId}, Current turn player: {(PlayerOrder.Count > CurrentPlayerTurn ? PlayerOrder[CurrentPlayerTurn] : -1)}");
             return;
         }
 
         // Get valid cards for AI
         var validCards = GetValidCards(playerId);
+        GD.Print($"CardManager: AI player {playerId} has {validCards.Count} valid cards");
+
         if (validCards.Count == 0)
         {
             GD.PrintErr($"CardManager: AI player {playerId} has no valid cards");
+
+            // Check if player has any cards at all
+            if (PlayerHands.ContainsKey(playerId))
+            {
+                GD.PrintErr($"CardManager: AI player {playerId} has {PlayerHands[playerId].Count} total cards");
+                if (PlayerHands[playerId].Count > 0)
+                {
+                    GD.PrintErr($"CardManager: First card: {PlayerHands[playerId][0]}");
+                }
+            }
+            else
+            {
+                GD.PrintErr($"CardManager: AI player {playerId} not found in PlayerHands!");
+            }
             return;
         }
 
@@ -947,6 +982,10 @@ public partial class CardManager : Node
         if (!success)
         {
             GD.PrintErr($"CardManager: Failed to auto-play card {cardToPlay} for AI player {playerId}");
+        }
+        else
+        {
+            GD.Print($"CardManager: Successfully auto-played card {cardToPlay} for AI player {playerId}");
         }
     }
 
