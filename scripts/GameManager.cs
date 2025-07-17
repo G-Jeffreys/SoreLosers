@@ -156,13 +156,33 @@ public partial class GameManager : Node
             // Create a more unique identifier combining PID and timestamp
             string instanceId = $"{processId}_{timestamp % 10000}";
 
-            // Test if we can bind to the detection port (more reliable than UDP test)
-            ushort testPort = 12345;
-            var tcp = new TcpServer();
-            bool isFirstInstance = tcp.Listen(testPort) == Error.Ok;
-            tcp.Stop();
+            // Use file-based lock for reliable instance detection
+            hostLockFilePath = OS.GetUserDataDir() + "/instance.lock";
+            bool isFirstInstance = false;
 
-            GD.Print($"GameManager: Instance detection - Process ID: {processId}, Timestamp: {timestamp}, Port test: {isFirstInstance}");
+            try
+            {
+                // Try to create exclusive lock file
+                var lockFile = FileAccess.Open(hostLockFilePath, FileAccess.ModeFlags.Write);
+                if (lockFile != null)
+                {
+                    lockFile.StoreString($"host_pid_{processId}_{timestamp}");
+                    lockFile.Close();
+                    isFirstInstance = true;
+                    GD.Print($"GameManager: Created host lock file at {hostLockFilePath}");
+                }
+                else
+                {
+                    GD.Print($"GameManager: Lock file exists - not first instance");
+                }
+            }
+            catch (Exception ex)
+            {
+                GD.Print($"GameManager: Lock file exception: {ex.Message} - assuming not first instance");
+                isFirstInstance = false;
+            }
+
+            GD.Print($"GameManager: Instance detection - Process ID: {processId}, Timestamp: {timestamp}, File lock: {isFirstInstance}");
 
             if (isFirstInstance)
             {
@@ -541,10 +561,19 @@ public partial class GameManager : Node
     }
 
     /// <summary>
-    /// Start the card game phase
+    /// Start the card game phase (HOST ONLY)
     /// </summary>
     public void StartCardGame()
     {
+        // CRITICAL FIX: Only host should start the actual game
+        if (NetworkManager == null || !NetworkManager.IsHost)
+        {
+            GD.PrintErr("GameManager: StartCardGame called on non-host - only host can start games!");
+            return;
+        }
+
+        GD.Print("GameManager: HOST starting card game");
+
         // Remove the premature player count check - we'll add AI players automatically
         // The actual player count validation happens in CardManager.ExecuteGameStart()
 
@@ -558,10 +587,7 @@ public partial class GameManager : Node
         CallDeferred(MethodName.StartCardManagerGame, playerIds.ToArray());
 
         // Notify all clients about game start via RPC
-        if (NetworkManager != null && NetworkManager.IsHost)
-        {
-            Rpc(MethodName.OnGameStarted);
-        }
+        Rpc(MethodName.OnGameStarted);
     }
 
     /// <summary>

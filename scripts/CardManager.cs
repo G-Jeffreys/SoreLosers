@@ -148,11 +148,15 @@ public partial class CardManager : Node
                 // Convert to array for RPC
                 int[] playerIdArray = playerIds.ToArray();
 
-                // CRITICAL FIX: Add error handling for RPC calls
+                // CRITICAL FIX: Host starts game locally AND notifies clients
                 try
                 {
-                    // Broadcast game start to all clients (including self)
+                    // Notify clients that game is starting (they will wait for card sync)
                     Rpc(MethodName.NetworkStartGame, playerIdArray);
+
+                    // Host executes game start locally (deals cards and syncs to clients)
+                    GD.Print("CardManager: HOST executing game start locally");
+                    ExecuteGameStart(playerIds);
                 }
                 catch (Exception ex)
                 {
@@ -176,63 +180,77 @@ public partial class CardManager : Node
     }
 
     /// <summary>
-    /// RPC method to synchronize game start across network
-    /// CRITICAL FIX: Changed from Authority to AnyPeer for better compatibility
+    /// RPC method to notify clients that the game is starting (CLIENT ONLY)
+    /// Clients should NOT call ExecuteGameStart - they wait for card sync from host
     /// </summary>
     /// <param name="playerIds">Array of player IDs</param>
-    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = true, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
     public void NetworkStartGame(int[] playerIds)
     {
         GD.Print("=== CRITICAL DEBUG: NetworkStartGame RPC RECEIVED ===");
-        GD.Print($"CardManager: Received NetworkStartGame RPC with {playerIds.Length} players");
+        GD.Print($"CardManager: CLIENT received NetworkStartGame RPC with {playerIds.Length} players");
         GD.Print($"CardManager: Sender ID: {GetTree().GetMultiplayer().GetRemoteSenderId()}");
         GD.Print($"CardManager: My ID: {GetTree().GetMultiplayer().GetUniqueId()}");
 
         var networkManager = GameManager.Instance?.NetworkManager;
         GD.Print($"CardManager: NetworkManager status - IsHost: {networkManager?.IsHost}, IsClient: {networkManager?.IsClient}, IsConnected: {networkManager?.IsConnected}");
 
-        GD.Print($"CardManager: Received player IDs: [{string.Join(", ", playerIds)}]");
+        // CRITICAL FIX: Only clients should receive this RPC
+        if (networkManager == null || networkManager.IsHost)
+        {
+            GD.PrintErr("CardManager: Host received NetworkStartGame RPC - this should not happen!");
+            return;
+        }
 
-        // Check current ConnectedPlayers state
+        GD.Print($"CardManager: CLIENT received player IDs: [{string.Join(", ", playerIds)}]");
+
+        // Validate players exist in ConnectedPlayers
         if (GameManager.Instance?.ConnectedPlayers != null)
         {
             var currentPlayers = GameManager.Instance.ConnectedPlayers.Keys.ToArray();
-            GD.Print($"CardManager: Current ConnectedPlayers: [{string.Join(", ", currentPlayers)}]");
+            GD.Print($"CardManager: CLIENT ConnectedPlayers: [{string.Join(", ", currentPlayers)}]");
 
-            // Check if all received players exist in ConnectedPlayers
             bool allPlayersExist = true;
             foreach (int playerId in playerIds)
             {
                 if (!GameManager.Instance.ConnectedPlayers.ContainsKey(playerId))
                 {
-                    GD.PrintErr($"CardManager: MISSING PLAYER {playerId} in ConnectedPlayers!");
+                    GD.PrintErr($"CardManager: CLIENT missing player {playerId} in ConnectedPlayers!");
                     allPlayersExist = false;
                 }
             }
 
             if (!allPlayersExist)
             {
-                GD.PrintErr("CardManager: NOT ALL PLAYERS EXIST - SYNC FAILED!");
-            }
-            else
-            {
-                GD.Print("CardManager: All players exist in ConnectedPlayers - sync successful");
-            }
-        }
-
-        // Additional validation: only process if sent by host (ID 1) or if we're offline
-        if (networkManager != null && networkManager.IsConnected)
-        {
-            int senderId = GetTree().GetMultiplayer().GetRemoteSenderId();
-            if (!networkManager.IsHost && senderId != 1)
-            {
-                GD.PrintErr($"CardManager: Ignoring NetworkStartGame from non-host sender {senderId}");
+                GD.PrintErr("CardManager: CLIENT player sync failed - not all players exist!");
                 return;
             }
         }
 
-        GD.Print("=== CALLING ExecuteGameStart ===");
-        ExecuteGameStart(playerIds.ToList());
+        // CRITICAL FIX: Clients set up basic game state but do NOT deal cards
+        // They wait for NetworkSyncDealtHands from host
+        GD.Print("=== CLIENT INITIALIZING GAME STATE (NO CARD DEALING) ===");
+
+        PlayerOrder = new List<int>(playerIds);
+        CurrentPlayerTurn = 0;
+        CurrentDealer = 0;
+        CurrentTrickLeader = 0;
+        GameInProgress = true;
+        TricksPlayed = 0;
+
+        // Initialize empty hands and scores (cards will come from host)
+        PlayerHands.Clear();
+        PlayerScores.Clear();
+        CurrentTrick.Clear();
+
+        foreach (int playerId in playerIds)
+        {
+            PlayerHands[playerId] = new List<Card>();
+            PlayerScores[playerId] = 0;
+        }
+
+        GD.Print($"CardManager: CLIENT game state initialized, waiting for host to deal cards...");
+        GD.Print($"CardManager: CLIENT PlayerOrder: [{string.Join(", ", PlayerOrder)}]");
         GD.Print("=== END NetworkStartGame RPC ===");
     }
 
@@ -529,6 +547,12 @@ public partial class CardManager : Node
     /// </summary>
     private void StartTurn()
     {
+        if (!GameInProgress || CurrentPlayerTurn >= PlayerOrder.Count)
+        {
+            GD.PrintErr($"CardManager: Cannot start turn - GameInProgress: {GameInProgress}, CurrentPlayerTurn: {CurrentPlayerTurn}, PlayerOrder.Count: {PlayerOrder.Count}");
+            return;
+        }
+
         int currentPlayerId = PlayerOrder[CurrentPlayerTurn];
 
         var gameManager = GameManager.Instance;
@@ -539,6 +563,14 @@ public partial class CardManager : Node
         {
             EmitSignal(SignalName.TurnStarted, currentPlayerId);
             return;
+        }
+
+        // CRITICAL FIX: Ensure timer is stopped before starting new turn
+        if (turnTimer != null && timerActive)
+        {
+            GD.Print($"CardManager: Warning - timer was still active when starting new turn for player {currentPlayerId}, stopping it");
+            turnTimer.Stop();
+            timerActive = false;
         }
 
         // Check if this is an AI player and auto-play if so
@@ -580,6 +612,7 @@ public partial class CardManager : Node
         // Start turn timer for human players (host only)
         if (turnTimer != null)
         {
+            GD.Print($"CardManager: Starting turn timer for player {currentPlayerId}");
             timerActive = true;
             turnTimer.Start();
         }
@@ -615,32 +648,85 @@ public partial class CardManager : Node
     }
 
     /// <summary>
-    /// End the current turn and move to next player
+    /// End the current turn and move to next player (HOST ONLY)
     /// </summary>
     private void EndTurn()
     {
-        int currentPlayerId = PlayerOrder[CurrentPlayerTurn];
+        var gameManager = GameManager.Instance;
+        var networkManager = gameManager?.NetworkManager;
 
-        // Stop turn timer
-        if (turnTimer != null && timerActive)
+        // CRITICAL FIX: Only host can manage turn progression
+        if (networkManager != null && networkManager.IsConnected && !networkManager.IsHost)
         {
-            turnTimer.Stop();
-            timerActive = false;
+            GD.PrintErr("CardManager: CLIENT attempted to call EndTurn - only host should manage turns!");
+            return;
+        }
+
+        int currentPlayerId = PlayerOrder[CurrentPlayerTurn];
+        GD.Print($"CardManager: HOST EndTurn called for player {currentPlayerId}");
+
+        // CRITICAL FIX: Always stop turn timer and reset state
+        if (turnTimer != null)
+        {
+            if (timerActive)
+            {
+                GD.Print($"CardManager: HOST stopping timer for player {currentPlayerId}");
+                turnTimer.Stop();
+            }
+            timerActive = false; // Always reset timer state
         }
 
         EmitSignal(SignalName.TurnEnded, currentPlayerId);
 
         // Move to next player
+        int previousTurn = CurrentPlayerTurn;
         CurrentPlayerTurn = (CurrentPlayerTurn + 1) % PlayerOrder.Count;
+        GD.Print($"CardManager: HOST moving to next player - new CurrentPlayerTurn: {CurrentPlayerTurn} (Player {PlayerOrder[CurrentPlayerTurn]})");
+
+        // CRITICAL FIX: Sync turn change to all clients
+        if (networkManager != null && networkManager.IsConnected)
+        {
+            Rpc(MethodName.NetworkSyncTurnChange, previousTurn, CurrentPlayerTurn, CurrentTrick.Count);
+        }
 
         // Check if trick is complete
         if (CurrentTrick.Count == PlayerOrder.Count)
         {
+            GD.Print($"CardManager: HOST trick complete with {CurrentTrick.Count} cards");
             CompleteTrick();
         }
         else
         {
+            GD.Print($"CardManager: HOST trick continues - {CurrentTrick.Count}/{PlayerOrder.Count} cards played");
             StartTurn();
+        }
+    }
+
+    /// <summary>
+    /// RPC method to synchronize turn changes from host to clients
+    /// </summary>
+    /// <param name="previousTurn">Previous turn index</param>
+    /// <param name="newTurn">New turn index</param>
+    /// <param name="trickCardCount">Number of cards in current trick</param>
+    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    public void NetworkSyncTurnChange(int previousTurn, int newTurn, int trickCardCount)
+    {
+        GD.Print($"CardManager: CLIENT received turn change - {previousTurn} -> {newTurn}, trick cards: {trickCardCount}");
+
+        // Update turn state on client
+        CurrentPlayerTurn = newTurn;
+
+        // Emit turn ended signal for previous player
+        if (previousTurn < PlayerOrder.Count)
+        {
+            EmitSignal(SignalName.TurnEnded, PlayerOrder[previousTurn]);
+        }
+
+        // Emit turn started signal for new player (if trick continues)
+        if (trickCardCount < PlayerOrder.Count && newTurn < PlayerOrder.Count)
+        {
+            EmitSignal(SignalName.TurnStarted, PlayerOrder[newTurn]);
+            GD.Print($"CardManager: CLIENT turn started for player {PlayerOrder[newTurn]}");
         }
     }
 
@@ -651,44 +737,119 @@ public partial class CardManager : Node
     /// <param name="card">Card being played</param>
     public bool PlayCard(int playerId, Card card)
     {
-        // If we're networked and this is a local player move, broadcast it via RPC
         var gameManager = GameManager.Instance;
         var networkManager = gameManager?.NetworkManager;
 
         if (networkManager != null && networkManager.IsConnected)
         {
-            // Check if this is a local player making the move
             bool isLocalPlayer = gameManager.LocalPlayer?.PlayerId == playerId;
 
             if (isLocalPlayer)
             {
-                // Broadcast to all clients (including self via CallLocal)
-                Rpc(MethodName.NetworkPlayCard, playerId, (int)card.Suit, (int)card.Rank);
-                return true; // The RPC call will handle the actual card play
+                if (networkManager.IsHost)
+                {
+                    // HOST playing locally: execute directly (RPC will be sent by ExecuteCardPlay)
+                    GD.Print($"CardManager: HOST playing card locally - Player {playerId}: {card}");
+                    return ExecuteCardPlay(playerId, card);
+                }
+                else
+                {
+                    // CLIENT playing locally: send to host for validation
+                    GD.Print($"CardManager: CLIENT sending card play to host - Player {playerId}: {card}");
+                    Rpc(MethodName.NetworkPlayCard, playerId, (int)card.Suit, (int)card.Rank);
+                    return true; // Host will validate and broadcast result via NetworkCardPlayResult
+                }
             }
         }
 
-        // Execute local card play (either single-player or from RPC)
+        // Execute local card play (single-player or offline mode)
         return ExecuteCardPlay(playerId, card);
     }
 
     /// <summary>
-    /// RPC method to synchronize card plays across network
+    /// RPC method to send card plays to host for validation and processing
     /// </summary>
     /// <param name="playerId">Player making the move</param>
     /// <param name="suitInt">Card suit as integer</param>
     /// <param name="rankInt">Card rank as integer</param>
-    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = true, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
     public void NetworkPlayCard(int playerId, int suitInt, int rankInt)
     {
         var suit = (Suit)suitInt;
         var rank = (Rank)rankInt;
         var card = new Card(suit, rank);
 
-        GD.Print($"CardManager: Network card play - Player {playerId}: {card}");
+        GD.Print($"CardManager: Network card play received - Player {playerId}: {card}");
 
-        // Execute the card play locally
-        ExecuteCardPlay(playerId, card);
+        var gameManager = GameManager.Instance;
+        var networkManager = gameManager?.NetworkManager;
+
+        // CRITICAL FIX: Only host processes card plays
+        if (networkManager == null || !networkManager.IsHost)
+        {
+            GD.PrintErr($"CardManager: Non-host received NetworkPlayCard - ignoring");
+            return;
+        }
+
+        GD.Print($"CardManager: HOST processing card play from player {playerId}: {card}");
+
+        // Execute the card play on host (ExecuteCardPlay will handle broadcasting on success)
+        bool success = ExecuteCardPlay(playerId, card);
+
+        if (!success)
+        {
+            // Only broadcast failed card play to original sender (success is handled by ExecuteCardPlay)
+            RpcId(GetTree().GetMultiplayer().GetRemoteSenderId(), MethodName.NetworkCardPlayResult, playerId, suitInt, rankInt, false);
+        }
+    }
+
+    /// <summary>
+    /// RPC method to notify clients of card play results
+    /// </summary>
+    /// <param name="playerId">Player who made the move</param>
+    /// <param name="suitInt">Card suit as integer</param>
+    /// <param name="rankInt">Card rank as integer</param>
+    /// <param name="success">Whether the card play was successful</param>
+    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    public void NetworkCardPlayResult(int playerId, int suitInt, int rankInt, bool success)
+    {
+        var suit = (Suit)suitInt;
+        var rank = (Rank)rankInt;
+        var card = new Card(suit, rank);
+
+        GD.Print($"CardManager: CLIENT received card play result - Player {playerId}: {card}, Success: {success}");
+
+        if (success)
+        {
+            // Apply the successful card play on client
+            ClientExecuteCardPlay(playerId, card);
+        }
+        else
+        {
+            GD.Print($"CardManager: CLIENT card play failed for player {playerId}: {card}");
+        }
+    }
+
+    /// <summary>
+    /// Execute card play on client (without validation, since host already validated)
+    /// </summary>
+    /// <param name="playerId">Player making the move</param>
+    /// <param name="card">Card being played</param>
+    private void ClientExecuteCardPlay(int playerId, Card card)
+    {
+        // Remove card from player's hand
+        if (PlayerHands.ContainsKey(playerId) && PlayerHands[playerId].Contains(card))
+        {
+            PlayerHands[playerId].Remove(card);
+        }
+
+        // Add to current trick
+        CurrentTrick.Add(new CardPlay(playerId, card));
+
+        // Emit signal for UI updates
+        EmitSignal("CardPlayed", playerId, card.ToString());
+
+        GD.Print($"CardManager: CLIENT executed card play - Player {playerId}: {card}");
     }
 
     /// <summary>
@@ -731,6 +892,15 @@ public partial class CardManager : Node
         PlayerHands[playerId].Remove(card);
         CurrentTrick.Add(new CardPlay(playerId, card));
 
+        // CRITICAL FIX: Sync card play to clients if this is the host
+        var networkManager = gameManager?.NetworkManager;
+        if (networkManager != null && networkManager.IsConnected && networkManager.IsHost)
+        {
+            // Send successful card play to all clients
+            GD.Print($"CardManager: HOST syncing card play to clients - Player {playerId}: {card}");
+            Rpc(MethodName.NetworkCardPlayResult, playerId, (int)card.Suit, (int)card.Rank, true);
+        }
+
         EmitSignal("CardPlayed", playerId, card.ToString());
 
         EndTurn();
@@ -766,10 +936,20 @@ public partial class CardManager : Node
     }
 
     /// <summary>
-    /// Complete the current trick and determine winner
+    /// Complete the current trick and determine winner (HOST ONLY)
     /// </summary>
     private void CompleteTrick()
     {
+        var gameManager = GameManager.Instance;
+        var networkManager = gameManager?.NetworkManager;
+
+        // CRITICAL FIX: Only host should complete tricks
+        if (networkManager != null && networkManager.IsConnected && !networkManager.IsHost)
+        {
+            GD.PrintErr("CardManager: CLIENT attempted to call CompleteTrick - only host should complete tricks!");
+            return;
+        }
+
         // Determine trick winner (highest card of led suit wins)
         Suit ledSuit = CurrentTrick[0].Card.Suit;
         CardPlay winningPlay = CurrentTrick[0];
@@ -783,7 +963,7 @@ public partial class CardManager : Node
         }
 
         int winnerId = winningPlay.PlayerId;
-        GD.Print($"CardManager: Player {winnerId} wins trick with {winningPlay.Card}");
+        GD.Print($"CardManager: HOST Player {winnerId} wins trick with {winningPlay.Card}");
 
         // Award points (1 point per trick)
         PlayerScores[winnerId]++;
@@ -791,6 +971,12 @@ public partial class CardManager : Node
         // Update trick leader for next trick
         CurrentTrickLeader = PlayerOrder.IndexOf(winnerId);
         CurrentPlayerTurn = CurrentTrickLeader;
+
+        // CRITICAL FIX: Sync trick completion to all clients
+        if (networkManager != null && networkManager.IsConnected)
+        {
+            Rpc(MethodName.NetworkSyncTrickComplete, winnerId, CurrentTrickLeader, CurrentPlayerTurn, PlayerScores[winnerId]);
+        }
 
         EmitSignal(SignalName.TrickCompleted, winnerId);
 
@@ -807,6 +993,38 @@ public partial class CardManager : Node
         {
             StartTurn();
         }
+    }
+
+    /// <summary>
+    /// RPC method to synchronize trick completion from host to clients
+    /// </summary>
+    /// <param name="winnerId">Player who won the trick</param>
+    /// <param name="newTrickLeader">New trick leader index</param>
+    /// <param name="newCurrentTurn">New current turn index</param>
+    /// <param name="winnerScore">Updated score for the winner</param>
+    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    public void NetworkSyncTrickComplete(int winnerId, int newTrickLeader, int newCurrentTurn, int winnerScore)
+    {
+        GD.Print($"CardManager: CLIENT received trick completion - Winner: {winnerId}, Score: {winnerScore}");
+
+        // Update scores
+        if (PlayerScores.ContainsKey(winnerId))
+        {
+            PlayerScores[winnerId] = winnerScore;
+        }
+
+        // Update trick leader and current turn
+        CurrentTrickLeader = newTrickLeader;
+        CurrentPlayerTurn = newCurrentTurn;
+
+        // Clear trick on client
+        CurrentTrick.Clear();
+        TricksPlayed++;
+
+        // Emit signal for UI updates
+        EmitSignal(SignalName.TrickCompleted, winnerId);
+
+        GD.Print($"CardManager: CLIENT trick synchronized - Leader: {CurrentTrickLeader}, Turn: {CurrentPlayerTurn}");
     }
 
     /// <summary>
@@ -893,10 +1111,26 @@ public partial class CardManager : Node
     /// </summary>
     private void OnTurnTimerExpired()
     {
-        if (!timerActive || !GameInProgress)
-            return;
+        GD.Print($"CardManager: OnTurnTimerExpired called - timerActive: {timerActive}, GameInProgress: {GameInProgress}");
 
+        if (!timerActive || !GameInProgress)
+        {
+            GD.Print($"CardManager: Timer expired but timerActive={timerActive}, GameInProgress={GameInProgress} - ignoring");
+            return;
+        }
+
+        // CRITICAL FIX: Validate that we're still waiting for the current player's turn
+        // If CurrentTrick already has a card from this player, they already played
         int currentPlayerId = PlayerOrder[CurrentPlayerTurn];
+        bool playerAlreadyPlayed = CurrentTrick.Any(cardPlay => cardPlay.PlayerId == currentPlayerId);
+
+        if (playerAlreadyPlayed)
+        {
+            GD.Print($"CardManager: Timer expired but player {currentPlayerId} already played their card - ignoring timeout");
+            timerActive = false; // Ensure timer state is clean
+            return;
+        }
+
         GD.Print($"CardManager: Turn timer expired for player {currentPlayerId}");
 
         timerActive = false;
@@ -908,6 +1142,7 @@ public partial class CardManager : Node
         if (!isPlayerAtTable)
         {
             // Player is in kitchen, they simply miss their turn
+            GD.Print($"CardManager: Player {currentPlayerId} is in kitchen - missing turn");
             EmitSignal(SignalName.TurnTimerExpired, currentPlayerId);
             EndTurn();
             return;
@@ -921,7 +1156,9 @@ public partial class CardManager : Node
             Card cardToPlay = validCards[random.Next(validCards.Count)];
 
             GD.Print($"CardManager: Auto-forfeiting player {currentPlayerId} with card {cardToPlay}");
-            PlayCard(currentPlayerId, cardToPlay);
+
+            // CRITICAL FIX: Call ExecuteCardPlay directly to avoid RPC and timer issues
+            ExecuteCardPlay(currentPlayerId, cardToPlay);
         }
         else
         {

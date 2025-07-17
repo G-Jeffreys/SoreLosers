@@ -333,42 +333,25 @@ public partial class NetworkManager : Node
 
         GD.Print($"NetworkManager: CLIENT local player ID before sync: {GameManager.Instance?.LocalPlayer?.PlayerId}");
 
-        // Clear existing players except local player (to avoid removing ourselves)
+        // CRITICAL FIX: Clear ALL existing players and rebuild in the exact order from host
         var localPlayerId = GameManager.Instance?.LocalPlayer?.PlayerId ?? -1;
-        var playersToRemove = new List<int>();
 
         if (GameManager.Instance?.ConnectedPlayers != null)
         {
             GD.Print($"NetworkManager: CLIENT current ConnectedPlayers before sync: [{string.Join(", ", GameManager.Instance.ConnectedPlayers.Keys)}]");
 
-            foreach (var existingPlayerId in GameManager.Instance.ConnectedPlayers.Keys)
-            {
-                if (existingPlayerId != localPlayerId)
-                {
-                    playersToRemove.Add(existingPlayerId);
-                }
-            }
+            // Clear the entire ConnectedPlayers dictionary to rebuild it in host order
+            GameManager.Instance.ConnectedPlayers.Clear();
+            ConnectedPlayers.Clear();
+
+            GD.Print("NetworkManager: CLIENT cleared all players to rebuild in host order");
         }
 
-        GD.Print($"NetworkManager: CLIENT removing players: [{string.Join(", ", playersToRemove)}] (keeping local player {localPlayerId})");
-
-        foreach (var playerId in playersToRemove)
-        {
-            GameManager.Instance?.RemovePlayer(playerId);
-        }
-
-        // Add all synchronized players
+        // Add all synchronized players in the exact order from host
         for (int i = 0; i < playerIds.Length; i++)
         {
             int playerId = playerIds[i];
             string playerName = playerNames[i];
-
-            // Skip if this is our local player (already exists)
-            if (playerId == localPlayerId)
-            {
-                GD.Print($"NetworkManager: CLIENT skipping local player {playerId} ({playerName})");
-                continue;
-            }
 
             // Create PlayerData for this synchronized player
             var playerData = new PlayerData
@@ -381,7 +364,17 @@ public partial class NetworkManager : Node
                 TotalXP = 0
             };
 
-            // Add to GameManager
+            // CRITICAL FIX: Update local player data if this is our player
+            if (playerId == localPlayerId)
+            {
+                GD.Print($"NetworkManager: CLIENT updating local player data for {playerId} ({playerName})");
+                if (GameManager.Instance?.LocalPlayer != null)
+                {
+                    GameManager.Instance.LocalPlayer.PlayerName = playerName; // Use host's name
+                }
+            }
+
+            // Add to GameManager in host order
             GameManager.Instance?.AddPlayer(playerId, playerData);
 
             // Update NetworkManager's connected players list
@@ -389,10 +382,10 @@ public partial class NetworkManager : Node
             {
                 PlayerId = playerId,
                 PlayerName = playerName,
-                IsHost = false // Only the actual host is marked as host
+                IsHost = (playerId == 1) // Host is always ID 1
             };
 
-            GD.Print($"NetworkManager: CLIENT synchronized player {playerName} (ID: {playerId})");
+            GD.Print($"NetworkManager: CLIENT synchronized player {playerName} (ID: {playerId}) in position {i}");
         }
 
         GD.Print($"NetworkManager: CLIENT player synchronization complete");

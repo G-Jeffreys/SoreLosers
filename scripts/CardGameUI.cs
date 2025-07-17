@@ -55,6 +55,10 @@ public partial class CardGameUI : Control
     private readonly string cardAssetsPath = "res://assets/cards/faces/";
     private readonly string cardBackPath = "res://assets/cards/backs/card_back_blue.png";
 
+    // Track last trick state to avoid unnecessary updates
+    private int lastTrickCount = -1;
+    private List<CardPlay> lastTrickState = new();
+
     public override void _Ready()
     {
         GD.Print("CardGame UI loaded");
@@ -160,9 +164,58 @@ public partial class CardGameUI : Control
     {
         UpdateTimerDisplay();
         UpdateGameStateDisplay();
-        UpdateTrickDisplay();
+        UpdateTrickDisplayIfChanged(); // FIXED: Only update when trick changes
         UpdatePlayersInfo();
         UpdateLocationControls(); // Update location controls based on current player location
+    }
+
+    /// <summary>
+    /// Update the trick area only when the trick state actually changes
+    /// </summary>
+    private void UpdateTrickDisplayIfChanged()
+    {
+        if (cardManager == null || !cardManager.GameInProgress)
+        {
+            // Clear trick display if game not in progress
+            if (lastTrickCount != 0)
+            {
+                ClearTrickDisplay();
+                lastTrickCount = 0;
+                lastTrickState.Clear();
+            }
+            return;
+        }
+
+        var gameState = cardManager.GetGameState();
+
+        // Only update if trick count or composition changed
+        bool trickChanged = false;
+
+        if (gameState.CurrentTrick.Count != lastTrickCount)
+        {
+            trickChanged = true;
+        }
+        else if (gameState.CurrentTrick.Count > 0)
+        {
+            // Check if any cards in the trick changed
+            for (int i = 0; i < gameState.CurrentTrick.Count; i++)
+            {
+                if (i >= lastTrickState.Count ||
+                    !gameState.CurrentTrick[i].Card.Equals(lastTrickState[i].Card) ||
+                    gameState.CurrentTrick[i].PlayerId != lastTrickState[i].PlayerId)
+                {
+                    trickChanged = true;
+                    break;
+                }
+            }
+        }
+
+        if (trickChanged)
+        {
+            UpdateTrickDisplay();
+            lastTrickCount = gameState.CurrentTrick.Count;
+            lastTrickState = new List<CardPlay>(gameState.CurrentTrick);
+        }
     }
 
     /// <summary>
@@ -174,20 +227,12 @@ public partial class CardGameUI : Control
 
         var gameState = cardManager.GetGameState();
 
-        // Clear existing trick cards
-        foreach (Node child in trickArea.GetChildren())
-        {
-            if (child.Name.ToString().StartsWith("TrickCard"))
-            {
-                child.QueueFree();
-            }
-        }
+        // Clear existing trick cards using the dedicated method
+        ClearTrickDisplay();
 
         // Add actual card graphics for current trick
         if (gameState.CurrentTrick.Count > 0)
         {
-            GD.Print($"DEBUG: Displaying {gameState.CurrentTrick.Count} trick cards in center area");
-
             // Calculate positioning for trick cards in center area
             // TrickArea is 200x100, cards are 100x140, so we'll arrange them clearly separated
             float cardWidth = trickCardSize.X;
@@ -218,7 +263,22 @@ public partial class CardGameUI : Control
                 cardButton.CallDeferred(Control.MethodName.SetSize, trickCardSize);
             }
 
-            GD.Print($"CardGameUI: Displayed {gameState.CurrentTrick.Count} trick cards with actual graphics");
+            // Only log when trick actually updates, not every frame
+            GD.Print($"CardGameUI: Updated trick display with {gameState.CurrentTrick.Count} cards");
+        }
+    }
+
+    /// <summary>
+    /// Clear the trick display
+    /// </summary>
+    private void ClearTrickDisplay()
+    {
+        foreach (Node child in trickArea.GetChildren())
+        {
+            if (child.Name.ToString().StartsWith("TrickCard"))
+            {
+                child.QueueFree();
+            }
         }
     }
 
@@ -227,55 +287,84 @@ public partial class CardGameUI : Control
     /// </summary>
     private void UpdatePlayersInfo()
     {
-        if (cardManager == null || gameManager == null || !cardManager.GameInProgress) return;
+        if (cardManager == null || gameManager == null) return;
+
+        // CRITICAL FIX: Use PlayerOrder for consistent display, not ConnectedPlayers dictionary order
+        var playerOrder = cardManager.PlayerOrder;
+        if (playerOrder == null || playerOrder.Count == 0)
+        {
+            // If no PlayerOrder yet, fall back to sorted ConnectedPlayers for consistency
+            var sortedPlayerIds = gameManager.ConnectedPlayers.Keys.ToList();
+            sortedPlayerIds.Sort();
+            playerOrder = sortedPlayerIds;
+        }
 
         var gameState = cardManager.GetGameState();
 
-        // Clear existing player info labels (but keep the title)
-        foreach (var label in playerInfoLabels)
+        // Ensure we have enough labels for all players
+        while (playerInfoLabels.Count < playerOrder.Count)
         {
-            label?.QueueFree();
+            var label = new Label();
+            label.Name = $"PlayerInfo_{playerInfoLabels.Count}";
+            playersInfoContainer.AddChild(label);
+            playerInfoLabels.Add(label);
         }
-        playerInfoLabels.Clear();
 
-        // Add info for each connected player
-        foreach (var playerKvp in gameManager.ConnectedPlayers)
+        // Hide excess labels if we have fewer players now
+        for (int i = playerOrder.Count; i < playerInfoLabels.Count; i++)
         {
-            int playerId = playerKvp.Key;
-            var playerData = playerKvp.Value;
+            playerInfoLabels[i].Visible = false;
+        }
 
-            var playerInfoLabel = new Label();
+        // Update each player's info in PlayerOrder sequence
+        for (int i = 0; i < playerOrder.Count; i++)
+        {
+            int playerId = playerOrder[i];
+            var label = playerInfoLabels[i];
+            label.Visible = true;
 
-            // Get hand size for this player
-            var playerHand = cardManager.GetPlayerHand(playerId);
-            int handSize = playerHand.Count;
+            if (!gameManager.ConnectedPlayers.ContainsKey(playerId))
+            {
+                label.Text = $"Player {playerId}: [DATA MISSING]";
+                label.Modulate = Colors.Red;
+                continue;
+            }
 
-            // Get score
-            int score = gameState.PlayerScores.GetValueOrDefault(playerId, 0);
+            var playerData = gameManager.ConnectedPlayers[playerId];
+            string playerName = playerData.PlayerName;
+
+            // Get card count for this player
+            int cardCount = 0;
+            if (cardManager.GameInProgress)
+            {
+                var playerHand = cardManager.GetPlayerHand(playerId);
+                cardCount = playerHand?.Count ?? 0;
+            }
+
+            // Get score for this player
+            int score = 0;
+            if (gameState.PlayerScores.ContainsKey(playerId))
+            {
+                score = gameState.PlayerScores[playerId];
+            }
 
             // Check if it's this player's turn
-            bool isCurrentTurn = gameState.CurrentPlayerTurn == playerId;
-            string turnIndicator = isCurrentTurn ? " [TURN]" : "";
+            bool isCurrentTurn = cardManager.GameInProgress &&
+                               gameState.CurrentPlayerTurn == playerId;
 
-            // Get player location
-            var location = gameManager.GetPlayerLocation(playerId);
-            string locationText = location == GameManager.PlayerLocation.AtTable ? "📍" : "🍳";
-
-            // Format player info
-            playerInfoLabel.Text = $"{locationText} {playerData.PlayerName}: {handSize} cards, {score} pts{turnIndicator}";
-
-            // Highlight current turn player
+            // Format the display text
+            string displayText = $"{playerName}: {cardCount} cards, {score} pts";
             if (isCurrentTurn)
             {
-                playerInfoLabel.Modulate = Colors.Yellow;
+                displayText += " [TURN]";
+                label.Modulate = Colors.Yellow; // Highlight current player
             }
             else
             {
-                playerInfoLabel.Modulate = Colors.White;
+                label.Modulate = Colors.White;
             }
 
-            playersInfoContainer.AddChild(playerInfoLabel);
-            playerInfoLabels.Add(playerInfoLabel);
+            label.Text = displayText;
         }
     }
 
@@ -1147,11 +1236,12 @@ public partial class CardGameUI : Control
     {
         GD.Print($"CardGameUI: Player {winnerId} won the trick");
 
-        // Clear trick area
-        foreach (Node child in trickArea.GetChildren())
-        {
-            child.QueueFree();
-        }
+        // Clear trick area using the dedicated method
+        ClearTrickDisplay();
+
+        // Reset trick tracking state
+        lastTrickCount = 0;
+        lastTrickState.Clear();
 
         // Update scores if needed
         UpdateScoreDisplay();
