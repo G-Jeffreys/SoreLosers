@@ -31,6 +31,11 @@ public partial class CardGameUI : Control
     private Control overlayLayer;
     private Dictionary<int, List<Control>> playerVisualOverlays = new();
 
+    // Sink cloud animation system - NEW
+    private bool sinkCloudOnCooldown = false;
+    private const float SinkCloudCooldownDuration = 1.5f; // 1.5 seconds as requested
+    private const float SinkCloudAnimationDuration = 0.5f; // 0.5 seconds as requested
+
     // Current player's cards
     private List<Card> currentPlayerCards = new();
     private List<TextureButton> cardButtons = new(); // CHANGED: Now using TextureButton for images
@@ -435,6 +440,26 @@ public partial class CardGameUI : Control
         else
         {
             // SabotageManager not available - visual effects disabled
+        }
+
+        // Connect Player events for sink cloud animation - NEW
+        if (player != null)
+        {
+            // Cast to Player type to access ItemInteracted signal
+            var playerScript = player as Player;
+            if (playerScript != null)
+            {
+                playerScript.ItemInteracted += OnPlayerItemInteracted;
+                GD.Print("CardGameUI: Connected to Player ItemInteracted events for sink cloud animation");
+            }
+            else
+            {
+                GD.PrintErr("CardGameUI: Player node is not a Player script - sink cloud animation not connected");
+            }
+        }
+        else
+        {
+            GD.PrintErr("CardGameUI: Player not found - sink cloud animation not connected");
         }
 
         // Initialize UI state
@@ -1361,6 +1386,21 @@ public partial class CardGameUI : Control
     }
 
     /// <summary>
+    /// Handle player item interaction - creates sink cloud animation when player interacts with sink
+    /// </summary>
+    private void OnPlayerItemInteracted(string itemType)
+    {
+        GD.Print($"DEBUG: Player interacted with item: {itemType}");
+
+        // Only handle sink interactions for cloud animation
+        if (itemType == "sink")
+        {
+            GD.Print("DEBUG: Sink interaction detected - triggering cloud animation");
+            CreateSinkCloudAnimation();
+        }
+    }
+
+    /// <summary>
     /// Handle sabotage applied event - for general sabotage effects
     /// </summary>
     private void OnSabotageApplied(int playerId, int sabotageTypeInt)
@@ -1702,6 +1742,149 @@ public partial class CardGameUI : Control
         playerVisualOverlays[localPlayerId].Add(splatTextureRect);
 
         GD.Print($"DEBUG: Egg splat visual created with coverage {coverage:P1}, size {splatSize} (15x larger than original!)");
+    }
+
+    /// <summary>
+    /// Create sink cloud animation effect - grows from center and fades over 0.5 seconds
+    /// </summary>
+    private void CreateSinkCloudAnimation()
+    {
+        GD.Print("DEBUG: Creating sink cloud animation");
+
+        // Check if on cooldown
+        if (sinkCloudOnCooldown)
+        {
+            GD.Print("DEBUG: Sink cloud animation on cooldown - ignoring request");
+            return;
+        }
+
+        if (overlayLayer == null)
+        {
+            GD.PrintErr("DEBUG: Cannot create sink cloud - overlay layer is null");
+            return;
+        }
+
+        // Set cooldown
+        sinkCloudOnCooldown = true;
+        GetTree().CreateTimer(SinkCloudCooldownDuration).Timeout += () =>
+        {
+            sinkCloudOnCooldown = false;
+            GD.Print("DEBUG: Sink cloud cooldown expired - ready for next use");
+        };
+
+        // Load the homogenous cloud texture asset
+        var cloudTexture = GD.Load<Texture2D>("res://assets/sabotage/Homogenous_cloud_of_...-543408979-0-2.png");
+        if (cloudTexture == null)
+        {
+            GD.PrintErr("DEBUG: Failed to load Homogenous_cloud PNG - falling back to gray panel");
+            // Fallback to gray panel if texture fails to load
+            CreateFallbackCloudAnimation();
+            return;
+        }
+
+        // Create cloud visual using actual PNG asset
+        var cloudTextureRect = new TextureRect();
+        cloudTextureRect.Name = "SinkCloud";
+        cloudTextureRect.Texture = cloudTexture;
+
+        // Start small at center of screen (player interactable size - approximately 64x64)
+        Vector2 startSize = new Vector2(64, 64);
+        Vector2 screenSize = GetViewportRect().Size;
+        Vector2 centerPosition = screenSize * 0.5f - startSize * 0.5f;
+
+        cloudTextureRect.Size = startSize;
+        cloudTextureRect.Position = centerPosition;
+
+        // Configure texture rendering
+        cloudTextureRect.ExpandMode = TextureRect.ExpandModeEnum.FitWidthProportional;
+        cloudTextureRect.StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered;
+        cloudTextureRect.MouseFilter = Control.MouseFilterEnum.Ignore; // Allow click-through
+
+        // Add to overlay layer
+        overlayLayer.AddChild(cloudTextureRect);
+
+        // Create tween for animation
+        var tween = CreateTween();
+        tween.SetParallel(true); // Allow multiple properties to animate simultaneously
+
+        // Calculate final size (cover entire kitchen/screen)
+        Vector2 finalSize = screenSize * 1.2f; // 20% larger than screen to ensure full coverage
+        Vector2 finalPosition = screenSize * 0.5f - finalSize * 0.5f;
+
+        // Animate growth from small to full screen
+        tween.TweenProperty(cloudTextureRect, "size", finalSize, SinkCloudAnimationDuration);
+        tween.TweenProperty(cloudTextureRect, "position", finalPosition, SinkCloudAnimationDuration);
+
+        // Animate fade out (start visible, fade to transparent)
+        cloudTextureRect.Modulate = new Color(1.0f, 1.0f, 1.0f, 1.0f); // Start fully visible
+        tween.TweenProperty(cloudTextureRect, "modulate", new Color(1.0f, 1.0f, 1.0f, 0.0f), SinkCloudAnimationDuration);
+
+        // Remove the cloud when animation completes
+        tween.Finished += () =>
+        {
+            if (IsInstanceValid(cloudTextureRect))
+            {
+                cloudTextureRect.QueueFree();
+                GD.Print("DEBUG: Sink cloud animation completed - cloud removed");
+            }
+        };
+
+        GD.Print($"DEBUG: Sink cloud animation started - duration: {SinkCloudAnimationDuration}s, cooldown: {SinkCloudCooldownDuration}s");
+    }
+
+    /// <summary>
+    /// Create fallback cloud animation using a gray panel when texture fails to load
+    /// </summary>
+    private void CreateFallbackCloudAnimation()
+    {
+        GD.Print("DEBUG: Creating fallback sink cloud animation (gray panel)");
+
+        // Create gray panel as fallback
+        var cloudPanel = new Panel();
+        cloudPanel.Name = "SinkCloudFallback";
+
+        // Style the cloud (gray/white color to represent steam/cloud)
+        var styleBox = new StyleBoxFlat();
+        styleBox.BgColor = new Color(0.8f, 0.8f, 0.8f, 1.0f); // Light gray
+        cloudPanel.AddThemeStyleboxOverride("panel", styleBox);
+
+        // Start small at center of screen
+        Vector2 startSize = new Vector2(128, 128);
+        Vector2 screenSize = GetViewportRect().Size;
+        Vector2 centerPosition = screenSize * 0.5f - startSize * 0.5f;
+
+        cloudPanel.Size = startSize;
+        cloudPanel.Position = centerPosition;
+        cloudPanel.MouseFilter = Control.MouseFilterEnum.Ignore; // Allow click-through
+
+        // Add to overlay layer
+        overlayLayer.AddChild(cloudPanel);
+
+        // Create tween for animation (same as texture version)
+        var tween = CreateTween();
+        tween.SetParallel(true);
+
+        Vector2 finalSize = screenSize * 1.2f;
+        Vector2 finalPosition = screenSize * 0.5f - finalSize * 0.5f;
+
+        tween.TweenProperty(cloudPanel, "size", finalSize, SinkCloudAnimationDuration);
+        tween.TweenProperty(cloudPanel, "position", finalPosition, SinkCloudAnimationDuration);
+
+        // Animate fade out
+        cloudPanel.Modulate = new Color(1.0f, 1.0f, 1.0f, 1.0f);
+        tween.TweenProperty(cloudPanel, "modulate", new Color(1.0f, 1.0f, 1.0f, 0.0f), SinkCloudAnimationDuration);
+
+        // Remove when done
+        tween.Finished += () =>
+        {
+            if (IsInstanceValid(cloudPanel))
+            {
+                cloudPanel.QueueFree();
+                GD.Print("DEBUG: Fallback sink cloud animation completed - panel removed");
+            }
+        };
+
+        GD.Print("DEBUG: Fallback sink cloud animation started");
     }
 
     /// <summary>
