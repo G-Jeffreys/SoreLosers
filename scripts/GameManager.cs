@@ -84,6 +84,15 @@ public partial class GameManager : Node
 
     public override void _Ready()
     {
+        // Check if we're running on a dedicated server
+        if (IsRunningOnDedicatedServer())
+        {
+            GD.Print("GameManager: Running on dedicated server - disabling client functionality");
+            SetProcess(false);
+            SetProcessInput(false);
+            return;
+        }
+
         // Set up singleton
         if (Instance == null)
         {
@@ -106,7 +115,36 @@ public partial class GameManager : Node
         // This prevents both instances from trying to auto-host and causing conflicts
     }
 
+    /// <summary>
+    /// Check if we're running on a dedicated server
+    /// </summary>
+    private bool IsRunningOnDedicatedServer()
+    {
+        // Multiple checks for dedicated server detection
 
+        // Check 1: DedicatedServer node exists in scene tree
+        if (GetTree().GetFirstNodeInGroup("dedicated_server") != null)
+            return true;
+
+        // Check 2: Running headless (no display server)
+        if (DisplayServer.GetName() == "headless")
+            return true;
+
+        // Check 3: Check main scene path
+        var currentScene = GetTree().CurrentScene;
+        if (currentScene != null && currentScene.SceneFilePath.Contains("DedicatedServer"))
+            return true;
+
+        // Check 4: Command line arguments
+        var args = OS.GetCmdlineArgs();
+        foreach (string arg in args)
+        {
+            if (arg.Contains("DedicatedServer") || arg.Contains("--headless"))
+                return true;
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Initialize all core game systems
@@ -508,32 +546,101 @@ public partial class GameManager : Node
     }
 
     /// <summary>
-    /// Start hosting a game
+    /// Start hosting a game - Now creates game on AWS server
     /// </summary>
     public void StartHosting()
     {
+        GD.Print("=== GAMEMANAGER: STARTING HOST GAME PROCESS ===");
         GD.Print($"GameManager: StartHosting called - LocalPlayer: {LocalPlayer?.PlayerName} (ID: {LocalPlayer?.PlayerId})");
+        GD.Print($"GameManager: Current phase: {CurrentPhase}");
+        GD.Print($"GameManager: Current players count: {ConnectedPlayers.Count}");
 
-        // Start hosting through NetworkManager
+        // Validate prerequisites
+        if (LocalPlayer == null)
+        {
+            GD.PrintErr("GameManager: LocalPlayer is null - cannot start hosting!");
+            return;
+        }
+
+        // Start hosting through NetworkManager (connects to AWS server)
         if (NetworkManager != null)
         {
-            string roomCode = NetworkManager.StartHosting();
-            if (string.IsNullOrEmpty(roomCode))
+            GD.Print($"GameManager: NetworkManager found - IsHost: {NetworkManager.IsHost}, IsClient: {NetworkManager.IsClient}, IsConnected: {NetworkManager.IsConnected}");
+
+            // Connect signal to handle server response
+            if (!NetworkManager.IsConnected(nameof(NetworkManager.ClientConnectedToServer), new Callable(this, nameof(OnHostingServerConnected))))
             {
-                GD.PrintErr("GameManager: Failed to start hosting");
-                return;
+                NetworkManager.ClientConnectedToServer += OnHostingServerConnected;
+                GD.Print("GameManager: Connected to ClientConnectedToServer signal");
+            }
+            else
+            {
+                GD.Print("GameManager: Already connected to ClientConnectedToServer signal");
             }
 
-            GD.Print($"GameManager: Hosting started successfully - Room code: {roomCode}");
+            // Also connect to connection failed signal for error handling
+            if (!NetworkManager.IsConnected(nameof(NetworkManager.ConnectionFailed), new Callable(this, nameof(OnHostingConnectionFailed))))
+            {
+                NetworkManager.ConnectionFailed += OnHostingConnectionFailed;
+                GD.Print("GameManager: Connected to ConnectionFailed signal");
+            }
+
+            GD.Print("GameManager: About to call NetworkManager.StartHosting()...");
+            NetworkManager.StartHosting();
+            GD.Print("GameManager: NetworkManager.StartHosting() call completed - waiting for connection...");
         }
+        else
+        {
+            GD.PrintErr("GameManager: NetworkManager not available - cannot start hosting!");
+            GD.PrintErr("GameManager: Check if NetworkManager is properly configured as autoload");
+        }
+
+        GD.Print("=== GAMEMANAGER: HOST GAME PROCESS INITIATED ===");
+    }
+
+    /// <summary>
+    /// Handle successful connection to server when hosting
+    /// </summary>
+    private void OnHostingServerConnected()
+    {
+        GD.Print("=== GAMEMANAGER: HOST CONNECTION SUCCESS ===");
+        GD.Print($"GameManager: Successfully connected to server - Room code: {NetworkManager.CurrentRoomCode}");
+
+        // Disconnect the signals since we only need them once for this hosting attempt
+        NetworkManager.ClientConnectedToServer -= OnHostingServerConnected;
+        NetworkManager.ConnectionFailed -= OnHostingConnectionFailed;
+        GD.Print("GameManager: Disconnected hosting connection signals");
+
+        // Now continue with hosting setup
+        GD.Print("GameManager: Transitioning to host lobby phase...");
 
         // Transition to host lobby phase
         ChangePhase(GamePhase.HostLobby);
 
         // Add local player as host
+        GD.Print($"GameManager: Adding local player as host: {LocalPlayer.PlayerName} (ID: {LocalPlayer.PlayerId})");
         AddPlayer(LocalPlayer.PlayerId, LocalPlayer);
 
         GD.Print($"GameManager: Host lobby setup complete - Phase: {CurrentPhase}");
+        GD.Print("=== GAMEMANAGER: HOST LOBBY READY ===");
+    }
+
+    /// <summary>
+    /// Handle connection failure when hosting
+    /// </summary>
+    private void OnHostingConnectionFailed(string reason)
+    {
+        GD.PrintErr("=== GAMEMANAGER: HOST CONNECTION FAILED ===");
+        GD.PrintErr($"GameManager: Failed to connect to server when hosting - Reason: {reason}");
+
+        // Disconnect the signals to clean up
+        NetworkManager.ClientConnectedToServer -= OnHostingServerConnected;
+        NetworkManager.ConnectionFailed -= OnHostingConnectionFailed;
+        GD.Print("GameManager: Disconnected hosting connection signals after failure");
+
+        // Stay in main menu - user can try again or see the error
+        GD.Print("GameManager: Staying in main menu after hosting failure");
+        GD.PrintErr("=== GAMEMANAGER: HOST CONNECTION FAILED - USER SHOULD SEE ERROR ===");
     }
 
     /// <summary>
@@ -769,7 +876,7 @@ public partial class GameManager : Node
     /// <summary>
     /// RPC method to notify clients that the game has started
     /// </summary>
-    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false)]
     public void OnGameStarted()
     {
         // Client transitions to card phase

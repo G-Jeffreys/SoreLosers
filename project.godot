@@ -22,6 +22,8 @@ NetworkManager="*res://scenes/NetworkManager.tscn"
 CardManager="*res://scenes/CardManager.tscn"
 SabotageManager="*res://scenes/SabotageManager.tscn"
 UIManager="*res://scenes/UIManager.tscn"
+MatchManager="*res://scenes/MatchManager.tscn"
+NakamaManager="*res://scenes/NakamaManager.tscn"
 
 [display]
 

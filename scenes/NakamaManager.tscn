@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://b1c2d3e4f5g6"]
+
+[ext_resource type="Script" uid="uid://c5m2ro5almh6k" path="res://scripts/NakamaManager.cs" id="1"]
+
+[node name="NakamaManager" type="Node"]
+script = ExtResource("1") 

@@ -1,0 +1,45 @@
+version: '3.8'
+services:
+  nakama:
+    image: heroiclabs/nakama:3.18.0
+    entrypoint:
+      - "/bin/sh"
+      - "-ecx"
+      - >
+        /nakama/nakama migrate up --database.address root@cockroachdb:26257/nakama && /nakama/nakama --name nakama1 --database.address root@cockroachdb:26257/nakama --logger.level INFO --session.token_expiry_sec 7200 --socket.server_key "sorelosers_server_key"
+    restart: unless-stopped
+    links:
+      - "cockroachdb:db"
+    depends_on:
+      cockroachdb:
+        condition: service_healthy
+    ports:
+      - "7349:7349" # gRPC API
+      - "7350:7350" # HTTP API
+      - "7351:7351" # WebSocket (Realtime API)
+    healthcheck:
+      test: [ "CMD", "/nakama/nakama", "healthcheck" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    environment:
+      - NAKAMA_SOCKET_SERVER_KEY=sorelosers_server_key
+      - NAKAMA_SESSION_TOKEN_EXPIRY_SEC=7200
+
+  cockroachdb:
+    image: cockroachdb/cockroach:latest-v23.1
+    command: start-single-node --insecure --store=attrs=ssd,path=/var/lib/cockroach/
+    restart: unless-stopped
+    volumes:
+      - data:/var/lib/cockroach
+    ports:
+      - "8080:8080" # CockroachDB Admin UI
+      - "26257:26257" # CockroachDB SQL
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/health?ready=1" ]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  data:

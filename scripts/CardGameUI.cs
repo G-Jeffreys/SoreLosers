@@ -411,6 +411,24 @@ public partial class CardGameUI : Control
         cardManager.HandDealt += OnHandDealt;
         cardManager.TurnTimerUpdated += OnTurnTimerUpdated;
 
+        // 🔥 NEW: Connect to MatchManager for Nakama integration
+        var matchManager = MatchManager.Instance;
+        if (matchManager != null)
+        {
+            matchManager.PlayerJoinedGame += OnMatchPlayerJoined;
+            matchManager.PlayerLeftGame += OnMatchPlayerLeft;
+            matchManager.PlayerReadyChanged += OnPlayerReadyChanged;
+            matchManager.GameStarted += OnMatchGameStarted;
+            GD.Print("CardGameUI: Connected to MatchManager events");
+
+            // Auto-mark player as ready when entering game
+            CallDeferred(nameof(AutoMarkPlayerReady));
+        }
+        else
+        {
+            GD.PrintErr("CardGameUI: MatchManager instance not found! Ready system disabled.");
+        }
+
         // Connect NetworkManager events if available
         if (gameManager.NetworkManager != null)
         {
@@ -1331,6 +1349,133 @@ public partial class CardGameUI : Control
         // The actual timer display is handled in UpdateTimerDisplay()
         // which now gets the synchronized timer value
     }
+
+    #region MatchManager Event Handlers (Nakama Integration)
+
+    /// <summary>
+    /// Auto-mark local player as ready when entering game
+    /// </summary>
+    private async void AutoMarkPlayerReady()
+    {
+        var matchManager = MatchManager.Instance;
+        if (matchManager != null)
+        {
+            await matchManager.SetPlayerReady(true);
+            GD.Print("CardGameUI: Auto-marked local player as ready");
+        }
+    }
+
+    /// <summary>
+    /// Handle player joining the match
+    /// </summary>
+    private void OnMatchPlayerJoined()
+    {
+        GD.Print("CardGameUI: Player joined the match");
+        // TODO: Update player count display, show lobby UI
+    }
+
+    /// <summary>
+    /// Handle player leaving the match
+    /// </summary>
+    private void OnMatchPlayerLeft()
+    {
+        GD.Print("CardGameUI: Player left the match");
+        // TODO: Update player count display
+    }
+
+    /// <summary>
+    /// Handle player ready status change
+    /// </summary>
+    private void OnPlayerReadyChanged(string playerId, bool isReady)
+    {
+        GD.Print($"CardGameUI: Player {playerId} ready status: {isReady}");
+
+        // 🔥 TEMPORARY: Auto-start game when all players ready (for testing)
+        var matchManager = MatchManager.Instance;
+        if (matchManager != null)
+        {
+            // Check if all players are ready
+            if (matchManager.AreAllPlayersReady())
+            {
+                GD.Print($"CardGameUI: All {matchManager.GetPlayerCount()} players are ready!");
+
+                // If local player is match owner, auto-start the game
+                if (matchManager.IsLocalPlayerMatchOwner())
+                {
+                    GD.Print("CardGameUI: Local player is match owner - auto-starting game...");
+                    CallDeferred(nameof(AutoStartGame));
+                }
+                else
+                {
+                    GD.Print("CardGameUI: Waiting for match owner to start the game...");
+                }
+            }
+            else
+            {
+                GD.Print($"CardGameUI: Waiting for more players to be ready ({matchManager.GetPlayerCount()} total)");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Auto-start game when all players are ready (temporary for testing)
+    /// </summary>
+    private async void AutoStartGame()
+    {
+        var matchManager = MatchManager.Instance;
+        if (matchManager != null)
+        {
+            GD.Print("CardGameUI: Auto-starting game...");
+            await matchManager.StartGame();
+        }
+    }
+
+    /// <summary>
+    /// Handle game started via MatchManager
+    /// </summary>
+    private void OnMatchGameStarted()
+    {
+        GD.Print("CardGameUI: Match game started! Triggering card dealing...");
+
+        // 🔥 CRITICAL: Connect MatchManager game start to CardManager
+        var matchManager = MatchManager.Instance;
+        if (matchManager != null && cardManager != null)
+        {
+            // Get player list from MatchManager
+            var playerIds = new List<int>();
+            foreach (var player in matchManager.Players.Values)
+            {
+                // Convert Nakama userId to int (assuming they're numeric)
+                if (int.TryParse(player.UserId, out int playerId))
+                {
+                    playerIds.Add(playerId);
+                }
+                else
+                {
+                    GD.PrintErr($"CardGameUI: Failed to parse player ID: {player.UserId}");
+                }
+            }
+
+            if (playerIds.Count > 0)
+            {
+                GD.Print($"CardGameUI: Starting CardManager game with {playerIds.Count} players: [{string.Join(", ", playerIds)}]");
+                cardManager.StartGame(playerIds);
+            }
+            else
+            {
+                GD.PrintErr("CardGameUI: No valid player IDs found for card dealing!");
+            }
+        }
+        else
+        {
+            GD.PrintErr("CardGameUI: Cannot start card dealing - MatchManager or CardManager missing!");
+        }
+
+        // Game has started - hide lobby UI, show game UI
+        // TODO: Hide ready buttons, show card game interface
+    }
+
+    #endregion
 
     /// <summary>
     /// Handle player connected to network

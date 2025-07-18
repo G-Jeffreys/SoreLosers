@@ -1,0 +1,10 @@
+{
+    "server_address": "3.16.16.22",
+    "server_port": 7777,
+    "max_concurrent_sessions": 10,
+    "max_players_per_session": 4,
+    "session_timeout_minutes": 30,
+    "enable_debug_logging": true,
+    "auto_start_game_with_players": 2,
+    "environment": "production"
+}

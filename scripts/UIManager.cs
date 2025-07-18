@@ -40,7 +40,7 @@ public partial class UIManager : Node
 
     // Chat intimidation tracking
     private Dictionary<int, ChatIntimidationData> playerChatStates = new();
-    private Dictionary<int, Timer> chatShrinkTimers = new();
+    private Dictionary<int, Godot.Timer> chatShrinkTimers = new();
 
     // UI node references
     private Control mainMenuPanel;
@@ -465,7 +465,7 @@ public partial class UIManager : Node
     {
         GD.Print($"UIManager: Starting chat shrink timer for player {playerId} ({ChatShrinkDelay}s)");
 
-        var timer = new Timer();
+        var timer = new Godot.Timer();
         timer.WaitTime = ChatShrinkDelay;
         timer.OneShot = true;
         AddChild(timer);

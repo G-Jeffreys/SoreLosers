@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3 uid="uid://server123456"]
+
+[ext_resource type="Script" path="res://scripts/DedicatedServer.cs" id="1"]
+
+[node name="DedicatedServer" type="Node"]
+script = ExtResource("1")
+ServerPort = 7777
+MaxConcurrentSessions = 10
+MaxPlayersPerSession = 4
+SessionTimeoutMinutes = 30.0 

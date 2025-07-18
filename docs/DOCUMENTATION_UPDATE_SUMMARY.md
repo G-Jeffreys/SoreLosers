@@ -1,11 +1,47 @@
-# Documentation Update Summary - Kitchen Background Scaling & UI Enhancement
+# Documentation Update Summary
 
-**Date**: December 2024  
-**Purpose**: Document all changes made to reflect kitchen background scaling improvements and UI streamlining
+**Latest Update**: January 18, 2025 - RPC Troubleshooting Session  
+**Previous Update**: December 2024 - Kitchen Background Scaling & UI Enhancement
 
 ---
 
-## 🎯 Latest Documentation Session: Kitchen Background Scaling & UI Enhancement Documentation
+## 🚨 **LATEST DOCUMENTATION SESSION: RPC Checksum Failure Investigation**
+
+**Date**: January 18, 2025  
+**Duration**: ~3 hours intensive troubleshooting  
+**Purpose**: Document critical RPC architecture discoveries and failed solutions
+
+### **Major Documentation Updates**:
+
+1. **`docs/RPC_STANDARDIZATION_GUIDE.md`** - Added critical troubleshooting discoveries section
+   - **Silent Build Failures**: Godot export failing silently when overwriting files
+   - **Autoload Execution Order Conflicts**: NetworkManager loading before removal logic
+   - **Server-Specific Architecture Attempts**: Multiple failed approaches documented
+   - **Updated Change Log**: All troubleshooting attempts and their outcomes
+
+2. **`docs/TROUBLESHOOTING_SESSION_2025_01_18.md`** - NEW COMPREHENSIVE TECHNICAL REPORT
+   - **4-Phase Investigation Timeline**: From code verification to architectural solutions
+   - **Failed Solution Documentation**: QueueFree(), DedicatedServer removal, project_server.godot
+   - **Key Discoveries**: Silent build failures, autoload RPC registration timing
+   - **Server Log Analysis**: Evidence of persistent issues despite all fixes
+   - **Lessons Learned**: Critical insights for future multiplayer architecture
+
+### **Current Status**: ⚠️ **RPC Issues Remain Unresolved**
+- NetworkManager still loads on server despite all architectural approaches
+- RPC checksum failures persist: `"The rpc node checksum failed. Make sure to have the same methods on both nodes. Node path: NetworkManager"`
+- Requires complete architectural restructure consideration
+
+### **Critical Technical Insights Documented**:
+- **Build Process**: Always delete existing files before Godot export
+- **Autoload Timing**: RPC registration happens during autoload init, not _Ready()
+- **Client-Server Separation**: Must happen at build/configuration level, not runtime
+- **Architecture Lesson**: Incremental fixes insufficient for fundamental design conflicts
+
+---
+
+## 🎯 Previous Documentation Session: Kitchen Background Scaling & UI Enhancement Documentation
+
+**Date**: December 2024
 
 This session focused on documenting the comprehensive kitchen display improvements, including vertical-fit background scaling, invisible interactables system, precise element positioning, and UI streamlining with redundant button removal.
 

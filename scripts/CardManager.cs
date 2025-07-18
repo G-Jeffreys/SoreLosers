@@ -35,7 +35,7 @@ public partial class CardManager : Node
     public int TricksPlayed { get; private set; } = 0;
 
     // Turn timer
-    private Timer turnTimer;
+    private Godot.Timer turnTimer;
     private bool timerActive = false;
     private float networkTurnTimeRemaining = 0.0f; // For clients to track time from host
 
@@ -70,7 +70,7 @@ public partial class CardManager : Node
     public override void _Ready()
     {
         // Initialize turn timer
-        turnTimer = new Timer();
+        turnTimer = new Godot.Timer();
         turnTimer.WaitTime = TurnDuration;
         turnTimer.OneShot = true;
         turnTimer.Timeout += OnTurnTimerExpired;
@@ -184,7 +184,7 @@ public partial class CardManager : Node
     /// Clients should NOT call ExecuteGameStart - they wait for card sync from host
     /// </summary>
     /// <param name="playerIds">Array of player IDs</param>
-    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false)]
     public void NetworkStartGame(int[] playerIds)
     {
         GD.Print("=== CRITICAL DEBUG: NetworkStartGame RPC RECEIVED ===");
@@ -456,7 +456,7 @@ public partial class CardManager : Node
     /// <param name="allCardRanks">Flattened array of all card ranks</param>
     /// <param name="trickLeader">Current trick leader</param>
     /// <param name="currentTurn">Current player turn index</param>
-    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false)]
     public void NetworkSyncDealtHands(int[] playerIds, int[] playerCardCounts, int[] allCardSuits, int[] allCardRanks, int trickLeader, int currentTurn)
     {
         GD.Print($"CardManager: CLIENT received dealt hands from host - {playerIds.Length} players");
@@ -630,7 +630,7 @@ public partial class CardManager : Node
     /// RPC method to synchronize turn starts across network
     /// </summary>
     /// <param name="playerId">Player whose turn is starting</param>
-    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false)]
     public void NetworkTurnStarted(int playerId)
     {
         EmitSignal(SignalName.TurnStarted, playerId);
@@ -640,7 +640,7 @@ public partial class CardManager : Node
     /// RPC method to synchronize timer updates from host to clients
     /// </summary>
     /// <param name="timeRemaining">Time remaining in seconds</param>
-    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Unreliable)]
+    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false)]
     public void NetworkTimerUpdate(float timeRemaining)
     {
         networkTurnTimeRemaining = timeRemaining;
@@ -708,7 +708,7 @@ public partial class CardManager : Node
     /// <param name="previousTurn">Previous turn index</param>
     /// <param name="newTurn">New turn index</param>
     /// <param name="trickCardCount">Number of cards in current trick</param>
-    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false)]
     public void NetworkSyncTurnChange(int previousTurn, int newTurn, int trickCardCount)
     {
         GD.Print($"CardManager: CLIENT received turn change - {previousTurn} -> {newTurn}, trick cards: {trickCardCount}");
@@ -772,7 +772,7 @@ public partial class CardManager : Node
     /// <param name="playerId">Player making the move</param>
     /// <param name="suitInt">Card suit as integer</param>
     /// <param name="rankInt">Card rank as integer</param>
-    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false)]
     public void NetworkPlayCard(int playerId, int suitInt, int rankInt)
     {
         var suit = (Suit)suitInt;
@@ -810,7 +810,7 @@ public partial class CardManager : Node
     /// <param name="suitInt">Card suit as integer</param>
     /// <param name="rankInt">Card rank as integer</param>
     /// <param name="success">Whether the card play was successful</param>
-    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false)]
     public void NetworkCardPlayResult(int playerId, int suitInt, int rankInt, bool success)
     {
         var suit = (Suit)suitInt;
@@ -1002,7 +1002,7 @@ public partial class CardManager : Node
     /// <param name="newTrickLeader">New trick leader index</param>
     /// <param name="newCurrentTurn">New current turn index</param>
     /// <param name="winnerScore">Updated score for the winner</param>
-    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false)]
     public void NetworkSyncTrickComplete(int winnerId, int newTrickLeader, int newCurrentTurn, int winnerScore)
     {
         GD.Print($"CardManager: CLIENT received trick completion - Winner: {winnerId}, Score: {winnerScore}");
