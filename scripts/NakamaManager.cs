@@ -455,7 +455,7 @@ public partial class NakamaManager : Node
                             var jsonData = JsonSerializer.Deserialize<JsonElement>(storageObject.Value);
                             var matchId = jsonData.GetProperty("matchId").GetString();
 
-                            GD.Print($"NakamaManager: Found match ID '{matchId}' for room code '{roomCode}'");
+                            GD.Print($"NakamaManager: Found match ID '{matchId}' for room code '{roomCode}' on attempt {attempt}");
 
                             // Store the mapping for future use
                             StoreRoomCodeMapping(roomCode, matchId);
@@ -471,12 +471,20 @@ public partial class NakamaManager : Node
                 }
                 else
                 {
-                    GD.Print($"NakamaManager: Room code '{roomCode}' not found in storage");
-                    return null;
-                }
+                    GD.Print($"NakamaManager: Room code '{roomCode}' not found in storage on attempt {attempt}");
 
-                return null;
+                    // If not the last attempt, wait a bit before retrying
+                    if (attempt < 3)
+                    {
+                        GD.Print($"NakamaManager: Waiting {attempt * 500}ms before retry...");
+                        await Task.Delay(attempt * 500); // 500ms, 1000ms delays
+                    }
+                }
             }
+
+            GD.Print($"NakamaManager: Room code '{roomCode}' not found after all attempts");
+            return null;
+        }
         catch (Exception ex)
         {
             GD.PrintErr($"NakamaManager: Error looking up room code '{roomCode}': {ex.Message}");
