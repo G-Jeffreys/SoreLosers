@@ -1531,37 +1531,37 @@ public partial class CardGameUI : Control
             var localPlayerId = gameManager.LocalPlayer?.PlayerId ?? 1;
             gameManager.ConnectedPlayers.Clear();
 
-            // 🔥 CRITICAL: Check expected vs actual player count for debugging
-            var expectedPlayerCount = matchManager.GetPlayerCount();
-            var actualPlayerCount = matchManager.Players.Count;
+            // 🔥 CRITICAL: Validate local player collection (which is working correctly)
+            var localPlayerCount = matchManager.Players.Count;
+            var actualMatchSize = matchManager.GetActualMatchSize();
 
-            GD.Print($"CardGameUI: Expected players: {expectedPlayerCount}, Actual in collection: {actualPlayerCount}");
+            GD.Print($"CardGameUI: Local players collection: {localPlayerCount}, Nakama reported sizes: {actualMatchSize}");
             GD.Print($"CardGameUI: MatchManager.Players contents:");
             foreach (var kvp in matchManager.Players)
             {
                 GD.Print($"  - {kvp.Value.Username} (ID: {kvp.Key}, Ready: {kvp.Value.IsReady})");
             }
 
-            // 🔥 FIX: Wait for MatchManager to have all expected players
-            if (actualPlayerCount < expectedPlayerCount)
+            // 🔥 FIX: Trust local collection since presence events are working correctly
+            if (localPlayerCount < 2)
             {
-                GD.PrintErr($"CardGameUI: MatchManager missing players - has {actualPlayerCount}, expected {expectedPlayerCount}");
+                GD.PrintErr($"CardGameUI: Insufficient players in local collection - have {localPlayerCount}, need at least 2");
 
                 if (gameStartRetryCount < MAX_GAME_START_RETRIES)
                 {
                     gameStartRetryCount++;
-                    GD.PrintErr($"CardGameUI: Retry attempt {gameStartRetryCount}/{MAX_GAME_START_RETRIES} - Waiting for MatchManager player sync...");
+                    GD.PrintErr($"CardGameUI: Retry attempt {gameStartRetryCount}/{MAX_GAME_START_RETRIES} - Waiting for more players to join...");
 
-                    // 🔥 ATTEMPT RECOVERY: Try to wait and retry
                     CallDeferred(MethodName.RetryGameStartWithDelay);
                 }
                 else
                 {
-                    GD.PrintErr($"CardGameUI: FATAL - Max retries ({MAX_GAME_START_RETRIES}) exceeded. MatchManager player sync failed.");
-                    GD.PrintErr("CardGameUI: This indicates a deeper synchronization issue with Nakama match state.");
+                    GD.PrintErr($"CardGameUI: FATAL - Max retries ({MAX_GAME_START_RETRIES}) exceeded. Not enough players in collection.");
                 }
                 return;
             }
+
+            GD.Print($"CardGameUI: ✅ Validation passed - {localPlayerCount} players ready for game start");
 
             // Add all Nakama players to GameManager with deterministic IDs
             var playerIndex = 0; // Start from 0 for consistency
@@ -1577,12 +1577,21 @@ public partial class CardGameUI : Control
                 // Create deterministic player ID based on sorted order
                 int playerId = playerIndex * 2; // Use even numbers: 0, 2, 4, etc.
 
-                // If this is the local player (match by Nakama user ID), detect host status
+                // If this is the local player (match by Nakama user ID), detect host status and update local player ID
                 var nakama = NakamaManager.Instance;
                 if (nakama?.Session?.UserId == nakamaPlayer.UserId)
                 {
                     // Keep the deterministic ID for consistency
                     isLocalPlayerHost = (playerIndex == 0); // First player in sorted order is host
+
+                    // 🔥 CRITICAL: Update GameManager's LocalPlayer ID to match the deterministic game ID
+                    if (gameManager?.LocalPlayer != null)
+                    {
+                        var oldId = gameManager.LocalPlayer.PlayerId;
+                        gameManager.LocalPlayer.PlayerId = playerId;
+                        GD.Print($"CardGameUI: Updated local player ID from {oldId} to {playerId} for card synchronization");
+                    }
+
                     GD.Print($"CardGameUI: Local player found - using ID {playerId}, isHost: {isLocalPlayerHost}");
                 }
 
@@ -1607,26 +1616,8 @@ public partial class CardGameUI : Control
             // Sort player IDs for consistency
             playerIds.Sort();
 
-            // 🔥 CRITICAL: Validate we have enough players
-            if (playerIds.Count < 2)
-            {
-                GD.PrintErr($"CardGameUI: ERROR - Only {playerIds.Count} players found in MatchManager! Need at least 2 players.");
-
-                if (gameStartRetryCount < MAX_GAME_START_RETRIES)
-                {
-                    gameStartRetryCount++;
-                    GD.PrintErr($"CardGameUI: Retry attempt {gameStartRetryCount}/{MAX_GAME_START_RETRIES} - MatchManager may not have all players synced yet.");
-
-                    // 🔥 ATTEMPT RECOVERY: Try to wait and retry
-                    CallDeferred(MethodName.RetryGameStartWithDelay);
-                }
-                else
-                {
-                    GD.PrintErr($"CardGameUI: FATAL - Max retries ({MAX_GAME_START_RETRIES}) exceeded. MatchManager player sync failed.");
-                    GD.PrintErr("CardGameUI: This indicates a deeper synchronization issue with Nakama match state.");
-                }
-                return;
-            }
+            // 🔥 VALIDATION: Final check that we successfully converted all players to game IDs
+            GD.Print($"CardGameUI: Successfully converted {playerIds.Count} players to game IDs: [{string.Join(", ", playerIds)}]");
 
             // 🔥 CRITICAL: Start the card game directly (bypassing network setup since Nakama handles networking)
             if (cardManager != null && playerIds.Count >= 2)

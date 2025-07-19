@@ -125,12 +125,39 @@ public partial class MatchManager : Node
             GD.Print("MatchManager: Successfully got NakamaManager reference");
         }
 
-        // Initialize players from current match
+        // 🔥 CRITICAL: Initialize players from current match with enhanced debugging
+        GD.Print($"MatchManager: SetCurrentMatch - Match has {match.Presences.Count()} presences");
         Players.Clear();
+
         foreach (var presence in match.Presences)
         {
+            GD.Print($"MatchManager: Adding existing player from match: {presence.Username} (ID: {presence.UserId})");
             AddOrUpdatePlayer(presence.UserId, presence.Username);
         }
+
+        // 🔥 CRITICAL: Ensure local player (self) is in the collection
+        // Nakama doesn't send presence events for your own join, so add self explicitly
+        if (nakama?.Session != null)
+        {
+            var localUserId = nakama.Session.UserId;
+
+            // Use display name or fallback to user ID substring
+            var localUsername = !string.IsNullOrEmpty(nakama.Session.Username)
+                ? nakama.Session.Username
+                : $"Player_{localUserId.Substring(0, 8)}";
+
+            if (!Players.ContainsKey(localUserId))
+            {
+                GD.Print($"MatchManager: Adding local player (self) to collection: {localUsername} (ID: {localUserId})");
+                AddOrUpdatePlayer(localUserId, localUsername);
+            }
+            else
+            {
+                GD.Print($"MatchManager: Local player {localUsername} already in collection");
+            }
+        }
+
+        GD.Print($"MatchManager: After adding all players including self, Players.Count = {Players.Count}");
 
         // Connect socket events if not already connected
         if (nakama?.Socket != null)
@@ -223,7 +250,32 @@ public partial class MatchManager : Node
     /// <summary>
     /// Get current player count
     /// </summary>
-    public int GetPlayerCount() => Players.Count;
+    public int GetPlayerCount()
+    {
+        var count = Players.Count;
+        GD.Print($"MatchManager: GetPlayerCount() returning {count} from Players.Count");
+        return count;
+    }
+
+    /// <summary>
+    /// Get actual match size from current match presences (more reliable than match.Size)
+    /// </summary>
+    public int GetActualMatchSize()
+    {
+        if (currentMatch != null)
+        {
+            var presenceCount = currentMatch.Presences.Count();
+            var reportedSize = currentMatch.Size;
+
+            GD.Print($"MatchManager: Match presences count: {presenceCount}, Reported match.Size: {reportedSize}");
+
+            // 🔥 FIX: Use presences count instead of match.Size which can be stale
+            return presenceCount;
+        }
+
+        GD.Print("MatchManager: GetActualMatchSize() - no current match, returning 0");
+        return 0;
+    }
 
     /// <summary>
     /// Get local player data
