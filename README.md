@@ -14,8 +14,20 @@ The core multiplayer networking has been **completely resolved** with perfect sy
 - **👥 Player Management**: Perfect player order consistency and status tracking
 - **🤖 AI Integration**: Seamless human + AI player games with full synchronization
 - **🎨 Visual Effects**: Working sabotage system with egg splats and chat intimidation
+- **💬 Real-time Chat**: Cross-instance messaging via Nakama with perfect synchronization
+- **🏠 Room Code System**: Easy 6-character codes for joining matches
+- **🔧 Nakama Integration**: Professional multiplayer server with presence management
 
-### 🚀 Recent Major Fixes (December 2024)
+### 🚀 Latest Achievements (January 2025)
+- **Nakama Server Integration**: Complete migration to professional multiplayer backend
+- **Threading Safety**: Fixed all async signal emission issues with CallDeferred patterns
+- **Chat Synchronization**: Real-time messaging between all game instances
+- **Player Presence Management**: Proper handling of join/leave events and self-presence
+- **Stale Data Resolution**: Fixed Nakama match.Size reliability issues
+- **Player ID Mapping**: Synchronized deterministic player IDs with card display
+- **Complete Error Recovery**: Graceful handling of network timing and connection issues
+
+### 🚀 Previous Major Fixes (December 2024)
 - **Instance Detection**: Fixed both instances detecting as "host" using file-based locks
 - **Player Order Sync**: Resolved player order inconsistencies between host/client
 - **Turn Authority**: Implemented host-only turn management with RPC synchronization
