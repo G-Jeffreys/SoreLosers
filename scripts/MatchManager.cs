@@ -30,6 +30,12 @@ public partial class MatchManager : Node
     public List<CardPlayData> CurrentTrick { get; private set; } = new();
     public int TricksPlayed { get; private set; } = 0;
 
+    // 🔥 NEW: Synchronized game seed for deterministic behavior
+    public int GameSeed { get; private set; } = 0;
+
+    // 🔥 NEW: Store dealt cards for synchronization
+    public Dictionary<int, List<string>> LastDealtCards { get; private set; } = new();
+
     // Match operation codes (replaces 29 RPC methods with 7 message types)
     public enum MatchOpCode
     {
@@ -39,7 +45,9 @@ public partial class MatchManager : Node
         CardPlayed = 4,          // Card play action
         TurnChange = 5,          // Turn progression
         GameEnd = 6,             // Game completion
-        ChatMessage = 7          // Chat message between players
+        ChatMessage = 7,         // Chat message between players
+        NameUpdate = 8,          // Player name change
+        CardsDealt = 9           // Card dealing synchronization
     }
 
     // Events for UI and game systems
@@ -47,9 +55,12 @@ public partial class MatchManager : Node
     [Signal] public delegate void PlayerLeftGameEventHandler();
     [Signal] public delegate void PlayerReadyChangedEventHandler(string playerId, bool isReady);
     [Signal] public delegate void GameStartedEventHandler();
+    [Signal] public delegate void ChatMessageReceivedEventHandler(string senderId, string senderName, string message);
+    [Signal] public delegate void CardPlayReceivedEventHandler(int playerId, string suit, string rank);
+    [Signal] public delegate void TurnChangeReceivedEventHandler(int currentPlayerTurn, int tricksPlayed);
+    [Signal] public delegate void CardsDealtEventHandler(); // Simple notification that cards were dealt
     [Signal] public delegate void CardPlayedEventHandler();
     [Signal] public delegate void TurnChangedEventHandler(string currentPlayerId);
-    [Signal] public delegate void ChatMessageReceivedEventHandler(string senderId, string senderName, string message);
     [Signal] public delegate void TrickCompletedEventHandler();
     [Signal] public delegate void GameEndedEventHandler(string winnerId);
 
@@ -188,8 +199,8 @@ public partial class MatchManager : Node
         }
         else
         {
-            // Add new player - 🔥 AUTO-READY: Mark new players as ready automatically for seamless gameplay
-            var autoReady = true; // Auto-mark all joining players as ready
+            // Add new player - 🔥 LOBBY SYSTEM: Don't auto-mark as ready, let match owner control start
+            var autoReady = false; // Players join lobby but aren't ready until match owner starts game
 
             var playerData = new MatchPlayerData
             {
@@ -201,16 +212,13 @@ public partial class MatchManager : Node
             };
 
             Players[userId] = playerData;
-            GD.Print($"MatchManager: Added player: {username} ({userId}) - Auto-marked as ready: {autoReady}");
+            GD.Print($"MatchManager: Added player: {username} ({userId}) - Waiting in lobby (not auto-ready)");
 
             // 🔥 CRITICAL: Use CallDeferred for thread safety
             CallDeferred(MethodName.EmitPlayerJoinedSignal);
 
-            // Emit ready changed signal for the auto-ready status
-            if (autoReady)
-            {
-                CallDeferred(MethodName.EmitPlayerReadyChangedSignal, userId, true);
-            }
+            // Don't emit ready changed signal since players start not-ready
+            // The match owner will start the game manually
         }
     }
 
@@ -339,16 +347,23 @@ public partial class MatchManager : Node
             return;
         }
 
-        if (!AreAllPlayersReady())
-        {
-            GD.PrintErr("MatchManager: Cannot start game - not all players are ready");
-            return;
-        }
+        // 🔥 REMOVED: Ready check for manual starts - match owner button press is explicit authorization
+        // When match owner clicks "Start Game", they're authorizing the game to begin regardless of other players' ready status
+        // This enables the lobby system where match owner has full control
 
-        GD.Print("MatchManager: Starting game...");
+        GD.Print("MatchManager: Match owner starting game manually...");
+
+        // 🔥 NEW: Force all players to ready state when match owner starts game
+        foreach (var player in Players.Values)
+        {
+            player.IsReady = true;
+        }
+        GD.Print($"MatchManager: Force-readied {Players.Count} players for manual start");
 
         // Prepare game start data
         var playerList = Players.Values.ToList();
+        var gameSeed = new Random().Next(); // Generate seed once for all instances
+
         var message = new GameStartMessage
         {
             Players = playerList.Select(p => new PlayerInfo
@@ -356,9 +371,14 @@ public partial class MatchManager : Node
                 PlayerId = p.UserId,
                 PlayerName = p.Username
             }).ToList(),
-            Seed = new Random().Next(), // For deterministic card shuffling
+            Seed = gameSeed, // Use the same seed for all instances
             DealerId = playerList[0].UserId // First player is dealer
         };
+
+        // 🔥 CRITICAL: Set GameSeed locally BEFORE sending message
+        // The match owner doesn't receive their own message back from Nakama
+        GameSeed = gameSeed;
+        GD.Print($"MatchManager: Match owner setting GameSeed locally: {GameSeed}");
 
         await SendMatchMessage(MatchOpCode.GameStart, message);
 
@@ -408,18 +428,39 @@ public partial class MatchManager : Node
     }
 
     /// <summary>
+    /// Send card play from CardManager to all players (used for syncing card plays)
+    /// </summary>
+    public async Task SendCardPlay(int playerId, string suit, string rank)
+    {
+        var playerData = Players.Values.FirstOrDefault(p =>
+        {
+            // Convert Nakama UserId to deterministic game ID for comparison
+            var sortedPlayerIds = Players.Keys.OrderBy(k => k).ToList();
+            var playerIndex = sortedPlayerIds.IndexOf(p.UserId);
+            var gameId = playerIndex * 2;
+            return gameId == playerId;
+        });
+
+        var cardPlay = new CardPlayData
+        {
+            PlayerId = playerId.ToString(), // Use game ID as string
+            PlayerName = playerData?.Username ?? $"Player_{playerId}",
+            Suit = suit,
+            Rank = rank,
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+        };
+
+        await SendMatchMessage(MatchOpCode.CardPlayed, cardPlay);
+        GD.Print($"MatchManager: Synced card play - Player {playerId}: {rank} of {suit}");
+    }
+
+    /// <summary>
     /// Send a chat message to all players in the match
     /// </summary>
     public async Task SendChatMessage(string message)
     {
         var localUserId = nakama?.Session?.UserId ?? "";
-        var localUsername = Players.GetValueOrDefault(localUserId)?.Username ?? "Unknown";
-
-        if (string.IsNullOrEmpty(localUserId))
-        {
-            GD.PrintErr("MatchManager: Cannot send chat - no local user");
-            return;
-        }
+        var localUsername = nakama?.Session?.Username ?? "Player";
 
         var chatMessage = new ChatMessageData
         {
@@ -431,6 +472,38 @@ public partial class MatchManager : Node
 
         await SendMatchMessage(MatchOpCode.ChatMessage, chatMessage);
         GD.Print($"MatchManager: Sent chat message: {message}");
+    }
+
+    /// <summary>
+    /// Update player name and sync to all players
+    /// </summary>
+    public async Task UpdatePlayerName(string newName)
+    {
+        var localUserId = nakama?.Session?.UserId ?? "";
+
+        if (string.IsNullOrWhiteSpace(newName))
+        {
+            GD.PrintErr("MatchManager: Cannot set empty name");
+            return;
+        }
+
+        // Update local player data
+        if (Players.ContainsKey(localUserId))
+        {
+            var oldName = Players[localUserId].Username;
+            Players[localUserId].Username = newName;
+            GD.Print($"MatchManager: Updated local name from '{oldName}' to '{newName}'");
+        }
+
+        // Send name update to all players
+        var nameUpdate = new NameUpdateMessage
+        {
+            PlayerId = localUserId,
+            NewName = newName
+        };
+
+        await SendMatchMessage(MatchOpCode.NameUpdate, nameUpdate);
+        GD.Print($"MatchManager: Sent name update to all players: {newName}");
     }
 
     /// <summary>
@@ -459,6 +532,35 @@ public partial class MatchManager : Node
 
         EmitSignal(SignalName.GameEnded, winnerId);
         GD.Print($"MatchManager: Game ended - Winner: {Players[winnerId]?.Username}");
+    }
+
+    /// <summary>
+    /// Send turn change from CardManager to all players (used for syncing turn progression)
+    /// </summary>
+    public async Task SendTurnChange(int currentPlayerTurn, int tricksPlayed)
+    {
+        var turnChange = new TurnChangeMessage
+        {
+            CurrentPlayerTurn = currentPlayerTurn,
+            TricksPlayed = tricksPlayed
+        };
+
+        await SendMatchMessage(MatchOpCode.TurnChange, turnChange);
+        GD.Print($"MatchManager: Synced turn change - CurrentPlayerTurn: {currentPlayerTurn}, TricksPlayed: {tricksPlayed}");
+    }
+
+    /// <summary>
+    /// Send dealt cards from CardManager to all players (used for syncing card dealing)
+    /// </summary>
+    public async Task SendCardsDealt(Dictionary<int, List<string>> playerHands)
+    {
+        var cardsDealt = new CardsDealtMessage
+        {
+            PlayerHands = playerHands
+        };
+
+        await SendMatchMessage(MatchOpCode.CardsDealt, cardsDealt);
+        GD.Print($"MatchManager: Synced dealt cards to all players - {playerHands.Count} hands");
     }
 
     #endregion
@@ -541,8 +643,14 @@ public partial class MatchManager : Node
                 case MatchOpCode.ChatMessage:
                     HandleChatMessage(data);
                     break;
+                case MatchOpCode.NameUpdate:
+                    HandleNameUpdateMessage(data);
+                    break;
+                case MatchOpCode.CardsDealt:
+                    HandleCardsDealtMessage(data);
+                    break;
                 default:
-                    GD.Print($"MatchManager: Unknown message type: {opCode}");
+                    GD.PrintErr($"MatchManager: Unknown message type: {opCode}");
                     break;
             }
         }
@@ -602,6 +710,10 @@ public partial class MatchManager : Node
         {
             var message = JsonSerializer.Deserialize<GameStartMessage>(data);
 
+            // 🔥 CRITICAL: Store synchronized seed for deterministic behavior
+            GameSeed = message.Seed;
+            GD.Print($"MatchManager: Received synchronized game seed: {GameSeed}");
+
             // Update local game state
             IsGameInProgress = true;
             CurrentTurnPlayerId = message.DealerId;
@@ -610,7 +722,7 @@ public partial class MatchManager : Node
 
             // 🔥 CRITICAL: Use CallDeferred to emit signal from main thread
             CallDeferred(MethodName.EmitGameStartedSignal);
-            GD.Print("MatchManager: Game started!");
+            GD.Print("MatchManager: Game started with synchronized seed!");
         }
         catch (Exception ex)
         {
@@ -648,10 +760,19 @@ public partial class MatchManager : Node
         try
         {
             var cardPlay = JsonSerializer.Deserialize<CardPlayData>(data);
+
+            // Convert player ID string back to game ID for CardManager
+            int gamePlayerId = int.Parse(cardPlay.PlayerId);
+
+            GD.Print($"MatchManager: Card play received - Player {gamePlayerId}: {cardPlay.Rank} of {cardPlay.Suit}");
+
+            // Emit signal for CardManager to handle the synchronized card play
+            CallDeferred(MethodName.EmitCardPlayReceivedSignal, gamePlayerId, cardPlay.Suit, cardPlay.Rank);
+
+            // Update local trick state if needed
             CurrentTrick.Add(cardPlay);
 
-            EmitSignal(SignalName.CardPlayed);
-            GD.Print($"MatchManager: {cardPlay.PlayerName} played {cardPlay.Rank} of {cardPlay.Suit}");
+            GD.Print($"MatchManager: Card play synchronized - {cardPlay.PlayerName} played {cardPlay.Rank} of {cardPlay.Suit}");
         }
         catch (Exception ex)
         {
@@ -659,20 +780,44 @@ public partial class MatchManager : Node
         }
     }
 
+    /// <summary>
+    /// Emit CardPlayReceived signal from main thread (fixes threading issues)
+    /// </summary>
+    private void EmitCardPlayReceivedSignal(int playerId, string suit, string rank)
+    {
+        EmitSignal(SignalName.CardPlayReceived, playerId, suit, rank);
+        GD.Print($"MatchManager: CardPlayReceived signal emitted for player {playerId}: {rank} of {suit}");
+    }
+
     private void HandleTurnChangeMessage(string data)
     {
         try
         {
             var message = JsonSerializer.Deserialize<TurnChangeMessage>(data);
+
+            // Update local state (for backwards compatibility)
             CurrentTurnPlayerId = message.NextPlayerId;
 
+            // Emit new turn change signal for CardManager synchronization
+            CallDeferred(MethodName.EmitTurnChangeReceivedSignal, message.CurrentPlayerTurn, message.TricksPlayed);
+
+            // Emit old signal for backwards compatibility
             EmitSignal(SignalName.TurnChanged, CurrentTurnPlayerId);
-            GD.Print($"MatchManager: Turn changed to {message.NextPlayerId}");
+            GD.Print($"MatchManager: Turn changed to {message.NextPlayerId}, PlayerTurn: {message.CurrentPlayerTurn}, Tricks: {message.TricksPlayed}");
         }
         catch (Exception ex)
         {
             GD.PrintErr($"MatchManager: Error handling turn change message: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Emit TurnChangeReceived signal from main thread (fixes threading issues)
+    /// </summary>
+    private void EmitTurnChangeReceivedSignal(int currentPlayerTurn, int tricksPlayed)
+    {
+        EmitSignal(SignalName.TurnChangeReceived, currentPlayerTurn, tricksPlayed);
+        GD.Print($"MatchManager: TurnChangeReceived signal emitted - PlayerTurn: {currentPlayerTurn}, Tricks: {tricksPlayed}");
     }
 
     private void HandleGameEndMessage(string data)
@@ -721,6 +866,43 @@ public partial class MatchManager : Node
         EmitSignal(SignalName.ChatMessageReceived, senderId, senderName, message);
     }
 
+    private void HandleNameUpdateMessage(string data)
+    {
+        try
+        {
+            var message = JsonSerializer.Deserialize<NameUpdateMessage>(data);
+            if (Players.ContainsKey(message.PlayerId))
+            {
+                Players[message.PlayerId].Username = message.NewName;
+                GD.Print($"MatchManager: Player {message.PlayerId} name updated to {message.NewName}");
+            }
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"MatchManager: Error handling name update message: {ex.Message}");
+        }
+    }
+
+    private void HandleCardsDealtMessage(string data)
+    {
+        try
+        {
+            var message = JsonSerializer.Deserialize<CardsDealtMessage>(data);
+            GD.Print($"MatchManager: Received dealt cards message for {message.PlayerHands.Count} players");
+
+            // Store the dealt cards in the property for CardManager to access
+            LastDealtCards = message.PlayerHands;
+
+            // Emit simple signal to notify CardManager that cards were dealt
+            EmitSignal(SignalName.CardsDealt);
+            GD.Print($"MatchManager: CardsDealt signal emitted - CardManager can access via LastDealtCards property");
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"MatchManager: Error handling dealt cards message: {ex.Message}");
+        }
+    }
+
     #endregion
 
     #region Message Data Structures
@@ -760,6 +942,8 @@ public partial class MatchManager : Node
     private class TurnChangeMessage
     {
         public string NextPlayerId { get; set; }
+        public int CurrentPlayerTurn { get; set; }
+        public int TricksPlayed { get; set; }
     }
 
     /// <summary>
@@ -769,6 +953,34 @@ public partial class MatchManager : Node
     {
         public string WinnerId { get; set; }
         public Dictionary<string, int> FinalScores { get; set; }
+    }
+
+    /// <summary>
+    /// Chat message data
+    /// </summary>
+    private class ChatMessageData
+    {
+        public string SenderId { get; set; }
+        public string SenderName { get; set; }
+        public string Message { get; set; }
+        public long Timestamp { get; set; }
+    }
+
+    /// <summary>
+    /// Name update message
+    /// </summary>
+    private class NameUpdateMessage
+    {
+        public string PlayerId { get; set; }
+        public string NewName { get; set; }
+    }
+
+    /// <summary>
+    /// Cards dealt message for synchronizing dealt cards across all players
+    /// </summary>
+    private class CardsDealtMessage
+    {
+        public Dictionary<int, List<string>> PlayerHands { get; set; }
     }
 
     #endregion

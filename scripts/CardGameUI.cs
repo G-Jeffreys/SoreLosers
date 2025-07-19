@@ -2,6 +2,7 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 
 public partial class CardGameUI : Control
 {
@@ -46,6 +47,15 @@ public partial class CardGameUI : Control
 
     // Debug button for testing
     private Button debugEggButton;
+
+    // 🔥 NEW: Nakama lobby UI elements
+    private Label nakamaLobbyLabel;
+    private Button nakamaStartButton;
+    private VBoxContainer nakamaPlayersList;
+    private Label nakamaStatusLabel;
+    private LineEdit nakamaNameInput;
+    private Label nakamaNameLabel;
+    private bool isNakamaLobbyVisible = false;
 
     // Chat message history
     private List<string> chatHistory = new();
@@ -108,6 +118,11 @@ public partial class CardGameUI : Control
 
         // Get debug button
         debugEggButton = GetNode<Button>("PlayersInfoPanel/DebugEggButton");
+
+        // 🔥 NEW: Initialize Nakama lobby UI elements
+        InitializeNakamaLobbyUI();
+
+        // 🔥 REMOVED: GetNode calls for lobby elements since they're created programmatically
 
         // DEBUG: Verify chat panel properties on startup
         if (chatPanel != null)
@@ -430,8 +445,8 @@ public partial class CardGameUI : Control
             matchManager.ChatMessageReceived += OnMatchChatMessageReceived;
             GD.Print("CardGameUI: Connected to MatchManager events including chat");
 
-            // Auto-mark player as ready when entering game
-            CallDeferred(nameof(AutoMarkPlayerReady));
+            // 🔥 LOBBY: Initialize Nakama lobby instead of auto-starting
+            CallDeferred(nameof(InitializeNakamaLobby));
         }
         else
         {
@@ -1367,37 +1382,7 @@ public partial class CardGameUI : Control
 
     #region MatchManager Event Handlers (Nakama Integration)
 
-    /// <summary>
-    /// Auto-mark local player as ready when entering game
-    /// </summary>
-    private async void AutoMarkPlayerReady()
-    {
-        var matchManager = MatchManager.Instance;
-        if (matchManager != null)
-        {
-            await matchManager.SetPlayerReady(true);
-            GD.Print("CardGameUI: Auto-marked local player as ready");
 
-            // 🔥 IMMEDIATE: If this player has match authority and is the only one, start immediately  
-            await GetTree().CreateTimer(0.5f).ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-
-            // Check if we can start the game immediately
-            if (matchManager.IsLocalPlayerMatchOwner() && matchManager.GetPlayerCount() >= 1)
-            {
-                GD.Print("CardGameUI: Match owner with sufficient players - checking if all ready...");
-
-                if (matchManager.AreAllPlayersReady())
-                {
-                    GD.Print("CardGameUI: All players ready - auto-starting game immediately!");
-                    CallDeferred(nameof(AutoStartGame));
-                }
-                else
-                {
-                    GD.Print($"CardGameUI: Waiting for {matchManager.GetPlayerCount()} players to be ready...");
-                }
-            }
-        }
-    }
 
     /// <summary>
     /// Handle player joining the match
@@ -1405,7 +1390,12 @@ public partial class CardGameUI : Control
     private void OnMatchPlayerJoined()
     {
         GD.Print("CardGameUI: Player joined the match");
-        // TODO: Update player count display, show lobby UI
+
+        // Update lobby display if visible
+        if (isNakamaLobbyVisible)
+        {
+            ShowNakamaLobby(); // Refresh the lobby display
+        }
     }
 
     /// <summary>
@@ -1414,7 +1404,12 @@ public partial class CardGameUI : Control
     private void OnMatchPlayerLeft()
     {
         GD.Print("CardGameUI: Player left the match");
-        // TODO: Update player count display
+
+        // Update lobby display if visible
+        if (isNakamaLobbyVisible)
+        {
+            ShowNakamaLobby(); // Refresh the lobby display
+        }
     }
 
     /// <summary>
@@ -1424,30 +1419,15 @@ public partial class CardGameUI : Control
     {
         GD.Print($"CardGameUI: Player {playerId} ready status: {isReady}");
 
-        // 🔥 CRITICAL: Auto-start game when all players ready (for testing)
+        // 🔥 REMOVED: Auto-start behavior - now match owner manually controls game start
+        // Players joining Nakama matches will wait in lobby until match owner starts the game
+
         var matchManager = MatchManager.Instance;
         if (matchManager != null)
         {
-            // Check if all players are ready
-            if (matchManager.AreAllPlayersReady())
-            {
-                GD.Print($"CardGameUI: All {matchManager.GetPlayerCount()} players are ready!");
-
-                // If local player is match owner, auto-start the game
-                if (matchManager.IsLocalPlayerMatchOwner())
-                {
-                    GD.Print("CardGameUI: Local player is match owner - auto-starting game...");
-                    CallDeferred(nameof(AutoStartGame));
-                }
-                else
-                {
-                    GD.Print("CardGameUI: Waiting for match owner to start the game...");
-                }
-            }
-            else
-            {
-                GD.Print($"CardGameUI: Waiting for more players to be ready ({matchManager.GetPlayerCount()} total)");
-            }
+            GD.Print($"CardGameUI: Player ready status updated - {matchManager.GetPlayerCount()} total players");
+            // Update lobby display if needed
+            ShowNakamaLobby();
         }
     }
 
@@ -1512,7 +1492,11 @@ public partial class CardGameUI : Control
             return;
         }
 
-        GD.Print("CardGameUI: Match game started! Triggering card dealing...");
+        GD.Print("CardGameUI: Match game started! Hiding lobby and starting card dealing...");
+
+        // 🔥 NEW: Hide Nakama lobby UI and show game UI
+        HideNakamaLobby();
+        ShowCardTableView();
 
         // 🔥 CRITICAL: Setup traditional multiplayer system from Nakama match data
         var matchManager = MatchManager.Instance;
@@ -1522,139 +1506,44 @@ public partial class CardGameUI : Control
             return;
         }
 
-        // 🔥 CRITICAL: Initialize GameManager players from Nakama match players
-        if (gameManager != null)
+        // 🔥 CRITICAL: Wait for synchronized seed before starting game
+        if (matchManager.GameSeed == 0)
         {
-            GD.Print("CardGameUI: Setting up traditional multiplayer system from Nakama players...");
+            // 🔥 NEW: Add retry limit to prevent infinite loops
+            gameStartRetryCount++;
 
-            // Clear existing players except local
-            var localPlayerId = gameManager.LocalPlayer?.PlayerId ?? 1;
-            gameManager.ConnectedPlayers.Clear();
-
-            // 🔥 CRITICAL: Validate local player collection (which is working correctly)
-            var localPlayerCount = matchManager.Players.Count;
-            var actualMatchSize = matchManager.GetActualMatchSize();
-
-            GD.Print($"CardGameUI: Local players collection: {localPlayerCount}, Nakama reported sizes: {actualMatchSize}");
-            GD.Print($"CardGameUI: MatchManager.Players contents:");
-            foreach (var kvp in matchManager.Players)
+            if (gameStartRetryCount > MAX_GAME_START_RETRIES)
             {
-                GD.Print($"  - {kvp.Value.Username} (ID: {kvp.Key}, Ready: {kvp.Value.IsReady})");
-            }
+                GD.PrintErr($"CardGameUI: GameSeed synchronization failed after {MAX_GAME_START_RETRIES} retries");
+                GD.PrintErr("CardGameUI: Using fallback seed generation to proceed with game");
 
-            // 🔥 FIX: Trust local collection since presence events are working correctly
-            if (localPlayerCount < 2)
-            {
-                GD.PrintErr($"CardGameUI: Insufficient players in local collection - have {localPlayerCount}, need at least 2");
+                // 🔥 FALLBACK: Generate a fallback seed based on match ID to ensure all instances use the same seed
+                var fallbackSeed = GetFallbackSeed();
+                GD.Print($"CardGameUI: Using fallback seed: {fallbackSeed}");
 
-                if (gameStartRetryCount < MAX_GAME_START_RETRIES)
-                {
-                    gameStartRetryCount++;
-                    GD.PrintErr($"CardGameUI: Retry attempt {gameStartRetryCount}/{MAX_GAME_START_RETRIES} - Waiting for more players to join...");
-
-                    CallDeferred(MethodName.RetryGameStartWithDelay);
-                }
-                else
-                {
-                    GD.PrintErr($"CardGameUI: FATAL - Max retries ({MAX_GAME_START_RETRIES}) exceeded. Not enough players in collection.");
-                }
+                // Proceed with game start using fallback
+                gameStartProcessed = true; // Mark as processed to prevent further retries
+                StartGameWithSeed(fallbackSeed);
                 return;
             }
 
-            GD.Print($"CardGameUI: ✅ Validation passed - {localPlayerCount} players ready for game start");
+            GD.Print($"CardGameUI: GameSeed not yet received from MatchManager - retry {gameStartRetryCount}/{MAX_GAME_START_RETRIES}");
 
-            // Add all Nakama players to GameManager with deterministic IDs
-            var playerIndex = 0; // Start from 0 for consistency
-            var playerIds = new List<int>();
-            var isLocalPlayerHost = false;
-
-            // 🔥 CRITICAL: Sort players by UserId for consistent ordering across all instances
-            var sortedPlayers = matchManager.Players.Values.OrderBy(p => p.UserId).ToList();
-            GD.Print($"CardGameUI: Sorted player list has {sortedPlayers.Count} players");
-
-            foreach (var nakamaPlayer in sortedPlayers)
+            // Try again after a short delay to wait for the GameStart message
+            GetTree().CreateTimer(0.2f).Timeout += () =>
             {
-                // Create deterministic player ID based on sorted order
-                int playerId = playerIndex * 2; // Use even numbers: 0, 2, 4, etc.
-
-                // If this is the local player (match by Nakama user ID), detect host status and update local player ID
-                var nakama = NakamaManager.Instance;
-                if (nakama?.Session?.UserId == nakamaPlayer.UserId)
-                {
-                    // Keep the deterministic ID for consistency
-                    isLocalPlayerHost = (playerIndex == 0); // First player in sorted order is host
-
-                    // 🔥 CRITICAL: Update GameManager's LocalPlayer ID to match the deterministic game ID
-                    if (gameManager?.LocalPlayer != null)
-                    {
-                        var oldId = gameManager.LocalPlayer.PlayerId;
-                        gameManager.LocalPlayer.PlayerId = playerId;
-                        GD.Print($"CardGameUI: Updated local player ID from {oldId} to {playerId} for card synchronization");
-                    }
-
-                    GD.Print($"CardGameUI: Local player found - using ID {playerId}, isHost: {isLocalPlayerHost}");
-                }
-
-                // Create PlayerData for GameManager
-                var playerData = new PlayerData
-                {
-                    PlayerId = playerId,
-                    PlayerName = nakamaPlayer.Username,
-                    ThrowPower = 1,
-                    MoveSpeed = 1,
-                    Composure = 1,
-                    TotalXP = 0
-                };
-
-                gameManager.AddPlayer(playerId, playerData);
-                playerIds.Add(playerId);
-
-                GD.Print($"CardGameUI: Added player {nakamaPlayer.Username} with ID {playerId}");
-                playerIndex++;
-            }
-
-            // Sort player IDs for consistency
-            playerIds.Sort();
-
-            // 🔥 VALIDATION: Final check that we successfully converted all players to game IDs
-            GD.Print($"CardGameUI: Successfully converted {playerIds.Count} players to game IDs: [{string.Join(", ", playerIds)}]");
-
-            // 🔥 CRITICAL: Start the card game directly (bypassing network setup since Nakama handles networking)
-            if (cardManager != null && playerIds.Count >= 2)
-            {
-                GD.Print($"CardGameUI: Starting CardManager game with {playerIds.Count} players: [{string.Join(", ", playerIds)}]");
-
-                // 🔥 CRITICAL: Set shuffle seed for consistent dealing across instances
-                // Use a deterministic seed based on match data for synchronization
-                var nakamaUserId = NakamaManager.Instance?.Session?.UserId ?? "default";
-                var firstPlayerId = matchManager.Players.Keys.OrderBy(k => k).FirstOrDefault() ?? nakamaUserId;
-                var seedString = $"{firstPlayerId}_{matchManager.GetPlayerCount()}";
-                var synchronizedSeed = seedString.GetHashCode();
-
-                cardManager.SetShuffleSeed(synchronizedSeed);
-                GD.Print($"CardGameUI: Set synchronized shuffle seed: {synchronizedSeed} (from: {seedString})");
-
-                // For Nakama games, we don't use the traditional host/client networking
-                // We'll use direct local start but sync via Nakama messages
-                cardManager.StartGame(playerIds);
-
-                // 🔥 CRITICAL: Mark game start as processed to prevent duplicate calls
-                gameStartProcessed = true;
-                gameStartRetryCount = 0; // Reset retry count on success
-                GD.Print("CardGameUI: Game start successfully processed - flag set");
-            }
-            else
-            {
-                GD.PrintErr("CardGameUI: Cannot start card dealing - CardManager missing or no players!");
-            }
-        }
-        else
-        {
-            GD.PrintErr("CardGameUI: Cannot start card dealing - GameManager missing!");
+                gameStartProcessed = false; // Reset flag to allow retry
+                OnMatchGameStarted(); // Retry
+            };
+            return;
         }
 
-        // Game has started - hide lobby UI, show game UI
-        // TODO: Hide ready buttons, show card game interface
+        // 🔥 SUCCESS: We have a synchronized seed
+        gameStartRetryCount = 0; // Reset retry count on success
+        GD.Print($"CardGameUI: GameSeed synchronized: {matchManager.GameSeed} - proceeding with game start");
+
+        // Start the game with the synchronized seed
+        StartGameWithSynchronizedSeed(matchManager.GameSeed);
     }
 
     #endregion
@@ -2532,6 +2421,544 @@ public partial class CardGameUI : Control
         GD.Print($"CardGameUI: Random egg position - Section {randomSection} (col:{column}, row:{row}) = {randomPosition}");
 
         return randomPosition;
+    }
+
+    /// <summary>
+    /// Handle Nakama match joining - show lobby instead of auto-starting
+    /// </summary>
+    private async void HandleNakamaMatchJoined()
+    {
+        var matchManager = MatchManager.Instance;
+        if (matchManager != null)
+        {
+            GD.Print("CardGameUI: Joined Nakama match - showing lobby");
+
+            // Don't auto-mark as ready - let match owner control the start
+            // Show lobby UI instead of immediately starting game
+            ShowNakamaLobby();
+        }
+    }
+
+    /// <summary>
+    /// Show lobby UI for Nakama matches
+    /// </summary>
+    private void ShowNakamaLobby()
+    {
+        var matchManager = MatchManager.Instance;
+        if (matchManager == null) return;
+
+        GD.Print($"CardGameUI: Showing Nakama lobby - {matchManager.GetPlayerCount()} players joined");
+
+        // 🔥 SAFETY: Ensure UI elements are initialized before using them
+        if (nakamaLobbyLabel == null || nakamaStatusLabel == null || nakamaStartButton == null || nakamaPlayersList == null)
+        {
+            GD.PrintErr("CardGameUI: Nakama lobby UI elements not initialized - calling InitializeNakamaLobbyUI()");
+            InitializeNakamaLobbyUI();
+        }
+
+        // Show the lobby UI
+        ShowNakamaLobbyUI();
+
+        // Update player list
+        UpdateNakamaPlayersList();
+
+        // Update status based on whether this player is the match owner
+        if (matchManager.IsLocalPlayerMatchOwner())
+        {
+            nakamaStatusLabel.Text = "You are the match owner. Click 'Start Game' when ready!";
+            nakamaStatusLabel.Modulate = Colors.LightGreen;
+            nakamaStartButton.Visible = true;
+            GD.Print("CardGameUI: Local player is match owner - showing start button");
+        }
+        else
+        {
+            nakamaStatusLabel.Text = "Waiting for match owner to start the game...";
+            nakamaStatusLabel.Modulate = Colors.Yellow;
+            nakamaStartButton.Visible = false;
+            GD.Print("CardGameUI: Waiting for match owner to start game");
+        }
+    }
+
+    /// <summary>
+    /// Update the Nakama players list display
+    /// </summary>
+    private void UpdateNakamaPlayersList()
+    {
+        var matchManager = MatchManager.Instance;
+        if (matchManager == null || nakamaPlayersList == null) return;
+
+        // Clear existing player labels
+        foreach (Node child in nakamaPlayersList.GetChildren())
+        {
+            child.QueueFree();
+        }
+
+        // Add current players
+        var sortedPlayers = matchManager.Players.Values.OrderBy(p => p.UserId).ToList();
+        foreach (var player in sortedPlayers)
+        {
+            var playerLabel = new Label();
+            playerLabel.Text = $"• {player.Username}";
+            playerLabel.HorizontalAlignment = HorizontalAlignment.Center;
+
+            // Highlight match owner
+            if (matchManager.IsLocalPlayerMatchOwner() && player.UserId == NakamaManager.Instance?.Session?.UserId)
+            {
+                playerLabel.Text += " (Match Owner)";
+                playerLabel.Modulate = Colors.LightGreen;
+            }
+            else if (player.UserId == sortedPlayers.First().UserId)
+            {
+                playerLabel.Text += " (Match Owner)";
+                playerLabel.Modulate = Colors.LightGreen;
+            }
+
+            nakamaPlayersList.AddChild(playerLabel);
+        }
+
+        // Add slots info
+        var slotsLabel = new Label();
+        slotsLabel.Text = $"Players: {matchManager.GetPlayerCount()}/4 (AI will fill remaining slots)";
+        slotsLabel.HorizontalAlignment = HorizontalAlignment.Center;
+        slotsLabel.Modulate = Colors.LightGray;
+        nakamaPlayersList.AddChild(slotsLabel);
+
+        GD.Print($"CardGameUI: Updated Nakama players list - {matchManager.GetPlayerCount()} players");
+    }
+
+    /// <summary>
+    /// Handle match owner starting the game manually
+    /// </summary>
+    private async void OnNakamaStartGamePressed()
+    {
+        GD.Print("🔥 CardGameUI: OnNakamaStartGamePressed called");
+
+        var matchManager = MatchManager.Instance;
+        if (matchManager == null)
+        {
+            GD.PrintErr("🔥 CardGameUI: MatchManager.Instance is NULL!");
+            return;
+        }
+
+        GD.Print($"🔥 CardGameUI: MatchManager found - checking if local player is match owner...");
+
+        if (!matchManager.IsLocalPlayerMatchOwner())
+        {
+            GD.PrintErr("🔥 CardGameUI: Local player is NOT the match owner!");
+            return;
+        }
+
+        GD.Print("🔥 CardGameUI: Local player IS the match owner - starting game...");
+
+        try
+        {
+            // Mark all players as ready and start the game
+            GD.Print("🔥 CardGameUI: Setting player ready...");
+            await matchManager.SetPlayerReady(true);
+
+            GD.Print("🔥 CardGameUI: Calling MatchManager.StartGame()...");
+            await matchManager.StartGame();
+
+            GD.Print("🔥 CardGameUI: MatchManager.StartGame() completed successfully!");
+        }
+        catch (System.Exception ex)
+        {
+            GD.PrintErr($"🔥 CardGameUI: Error starting game: {ex.Message}");
+            GD.PrintErr($"🔥 CardGameUI: Stack trace: {ex.StackTrace}");
+        }
+    }
+
+    /// <summary>
+    /// Initialize Nakama match lobby when entering game scene
+    /// </summary>
+    private async void InitializeNakamaLobby()
+    {
+        var matchManager = MatchManager.Instance;
+        if (matchManager != null)
+        {
+            GD.Print("CardGameUI: Initializing Nakama lobby");
+
+            // Show lobby UI instead of auto-starting
+            await GetTree().CreateTimer(0.5f).ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            ShowNakamaLobby();
+        }
+    }
+
+    /// <summary>
+    /// Initialize Nakama lobby UI elements programmatically
+    /// </summary>
+    private void InitializeNakamaLobbyUI()
+    {
+        // Create lobby UI elements dynamically and add them to the players info container
+
+        // Lobby title label
+        nakamaLobbyLabel = new Label();
+        nakamaLobbyLabel.Text = "Nakama Match Lobby";
+        nakamaLobbyLabel.HorizontalAlignment = HorizontalAlignment.Center;
+        nakamaLobbyLabel.AddThemeStyleboxOverride("normal", new StyleBoxFlat());
+        playersInfoContainer.AddChild(nakamaLobbyLabel);
+
+        // 🔥 NEW: Name editing section
+        nakamaNameLabel = new Label();
+        nakamaNameLabel.Text = "Your Name:";
+        nakamaNameLabel.HorizontalAlignment = HorizontalAlignment.Left;
+        playersInfoContainer.AddChild(nakamaNameLabel);
+
+        nakamaNameInput = new LineEdit();
+        nakamaNameInput.PlaceholderText = "Enter your display name...";
+        nakamaNameInput.MaxLength = 20;
+        nakamaNameInput.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        nakamaNameInput.TextSubmitted += OnNameSubmitted;
+        nakamaNameInput.TextChanged += OnNameTextChanged;
+
+        // Set initial name from Nakama session
+        var nakama = NakamaManager.Instance;
+        if (nakama?.Session != null)
+        {
+            var currentName = !string.IsNullOrEmpty(nakama.Session.Username)
+                ? nakama.Session.Username
+                : $"Player_{nakama.Session.UserId.Substring(0, 8)}";
+            nakamaNameInput.Text = currentName;
+        }
+
+        playersInfoContainer.AddChild(nakamaNameInput);
+
+        // Add spacing
+        var spacer = new Control();
+        spacer.CustomMinimumSize = new Vector2(0, 10);
+        playersInfoContainer.AddChild(spacer);
+
+        // Status label (for match owner vs waiting messages)
+        nakamaStatusLabel = new Label();
+        nakamaStatusLabel.Text = "Waiting for match owner to start...";
+        nakamaStatusLabel.HorizontalAlignment = HorizontalAlignment.Center;
+        nakamaStatusLabel.Modulate = Colors.Yellow;
+        playersInfoContainer.AddChild(nakamaStatusLabel);
+
+        // Players list container
+        nakamaPlayersList = new VBoxContainer();
+        nakamaPlayersList.Name = "NakamaPlayersList";
+        playersInfoContainer.AddChild(nakamaPlayersList);
+
+        // Start game button (only visible for match owner)
+        nakamaStartButton = new Button();
+        nakamaStartButton.Text = "Start Game";
+        nakamaStartButton.SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter;
+        nakamaStartButton.Pressed += OnNakamaStartButtonPressed;
+        playersInfoContainer.AddChild(nakamaStartButton);
+
+        // Hide lobby UI initially
+        HideNakamaLobby();
+
+        GD.Print("CardGameUI: Nakama lobby UI elements created with name editing");
+    }
+
+    /// <summary>
+    /// Handle Nakama start button pressed
+    /// </summary>
+    private void OnNakamaStartButtonPressed()
+    {
+        GD.Print("🔥 CardGameUI: Nakama start button CLICKED! Processing...");
+        CallDeferred(nameof(OnNakamaStartGamePressed));
+    }
+
+    /// <summary>
+    /// Show Nakama lobby UI
+    /// </summary>
+    private void ShowNakamaLobbyUI()
+    {
+        // 🔥 SAFETY: Check all UI elements before using them
+        if (nakamaLobbyLabel == null || nakamaStatusLabel == null || nakamaPlayersList == null || nakamaStartButton == null ||
+            nakamaNameInput == null || nakamaNameLabel == null)
+        {
+            GD.PrintErr("CardGameUI: Cannot show Nakama lobby UI - elements not initialized");
+            return;
+        }
+
+        nakamaLobbyLabel.Visible = true;
+        nakamaNameLabel.Visible = true;
+        nakamaNameInput.Visible = true;
+        nakamaStatusLabel.Visible = true;
+        nakamaPlayersList.Visible = true;
+        nakamaStartButton.Visible = true;
+        isNakamaLobbyVisible = true;
+
+        // Hide regular game UI
+        if (cardTableView != null) cardTableView.Visible = false;
+        if (kitchenView != null) kitchenView.Visible = false;
+
+        GD.Print("CardGameUI: Showing Nakama lobby UI with name editing");
+    }
+
+    /// <summary>
+    /// Hide Nakama lobby UI
+    /// </summary>
+    private void HideNakamaLobby()
+    {
+        // 🔥 SAFETY: Check all UI elements before using them
+        if (nakamaLobbyLabel == null || nakamaStatusLabel == null || nakamaPlayersList == null || nakamaStartButton == null ||
+            nakamaNameInput == null || nakamaNameLabel == null)
+        {
+            GD.Print("CardGameUI: Cannot hide Nakama lobby UI - elements not initialized");
+            return;
+        }
+
+        nakamaLobbyLabel.Visible = false;
+        nakamaNameLabel.Visible = false;
+        nakamaNameInput.Visible = false;
+        nakamaStatusLabel.Visible = false;
+        nakamaPlayersList.Visible = false;
+        nakamaStartButton.Visible = false;
+        isNakamaLobbyVisible = false;
+
+        GD.Print("CardGameUI: Hiding Nakama lobby UI");
+    }
+
+    /// <summary>
+    /// Handle name text changed in lobby
+    /// </summary>
+    private void OnNameTextChanged(string newText)
+    {
+        // Real-time validation - just trim and limit length
+        if (newText.Length > 20)
+        {
+            nakamaNameInput.Text = newText.Substring(0, 20);
+            nakamaNameInput.CaretColumn = 20;
+        }
+    }
+
+    /// <summary>
+    /// Handle name submitted (Enter pressed)
+    /// </summary>
+    private async void OnNameSubmitted(string newName)
+    {
+        await UpdatePlayerName(newName.Trim());
+    }
+
+    /// <summary>
+    /// Update player's display name in the match
+    /// </summary>
+    private async Task UpdatePlayerName(string newName)
+    {
+        if (string.IsNullOrWhiteSpace(newName))
+        {
+            GD.PrintErr("CardGameUI: Cannot set empty name");
+            return;
+        }
+
+        var matchManager = MatchManager.Instance;
+
+        if (matchManager == null)
+        {
+            GD.PrintErr("CardGameUI: Cannot update name - MatchManager not available");
+            return;
+        }
+
+        // Use MatchManager to sync name to all players
+        await matchManager.UpdatePlayerName(newName);
+
+        // Refresh lobby display to show new name
+        if (isNakamaLobbyVisible)
+        {
+            ShowNakamaLobby();
+        }
+
+        GD.Print($"CardGameUI: Name update sent to all players: {newName}");
+    }
+
+    /// <summary>
+    /// Generate a fallback seed based on match data to ensure all instances use the same seed
+    /// </summary>
+    private int GetFallbackSeed()
+    {
+        var matchManager = MatchManager.Instance;
+        var nakama = NakamaManager.Instance;
+
+        if (matchManager != null && nakama?.Session != null)
+        {
+            // Use player count and first player ID for deterministic seed
+            var playerCount = matchManager.GetPlayerCount();
+            var firstPlayerId = matchManager.Players.Keys.OrderBy(k => k).FirstOrDefault() ?? nakama.Session.UserId;
+            var seedString = $"{firstPlayerId}_{playerCount}";
+            return seedString.GetHashCode();
+        }
+
+        // Ultimate fallback
+        return 12345;
+    }
+
+    /// <summary>
+    /// Start the game with a specific seed (unified method for both synchronized and fallback seeds)
+    /// </summary>
+    private void StartGameWithSeed(int seed)
+    {
+        var matchManager = MatchManager.Instance;
+        if (matchManager == null || gameManager == null)
+        {
+            GD.PrintErr("CardGameUI: Cannot start game - missing managers");
+            return;
+        }
+
+        GD.Print($"CardGameUI: Starting game with seed: {seed}");
+
+        // 🔥 CRITICAL: Initialize GameManager players from Nakama match players
+        GD.Print("CardGameUI: Setting up traditional multiplayer system from Nakama players...");
+
+        // Clear existing players except local
+        var localPlayerId = gameManager.LocalPlayer?.PlayerId ?? 1;
+        gameManager.ConnectedPlayers.Clear();
+
+        // 🔥 CRITICAL: Validate local player collection (which is working correctly)
+        var localPlayerCount = matchManager.Players.Count;
+        var actualMatchSize = matchManager.GetActualMatchSize();
+
+        GD.Print($"CardGameUI: Local players collection: {localPlayerCount}, Nakama reported sizes: {actualMatchSize}");
+        GD.Print($"CardGameUI: MatchManager.Players contents:");
+        foreach (var kvp in matchManager.Players)
+        {
+            GD.Print($"  - {kvp.Value.Username} (ID: {kvp.Key}, Ready: {kvp.Value.IsReady})");
+        }
+
+        // 🔥 FIX: Trust local collection since presence events are working correctly
+        // 🔥 UPDATED: Allow 1+ human players since AI will fill remaining slots to 4 total
+        if (localPlayerCount < 1)
+        {
+            GD.PrintErr($"CardGameUI: Insufficient players in local collection - have {localPlayerCount}, need at least 1 human player");
+            return;
+        }
+
+        GD.Print($"CardGameUI: ✅ Validation passed - {localPlayerCount} human players ready for game start (AI will fill remaining slots)");
+
+        // Add all Nakama players to GameManager with deterministic IDs
+        var playerIndex = 0; // Start from 0 for consistency
+        var playerIds = new List<int>();
+        var isLocalPlayerHost = false;
+
+        // 🔥 CRITICAL: Sort players by UserId for consistent ordering across all instances
+        var sortedPlayers = matchManager.Players.Values.OrderBy(p => p.UserId).ToList();
+        GD.Print($"CardGameUI: Sorted player list has {sortedPlayers.Count} players");
+
+        foreach (var nakamaPlayer in sortedPlayers)
+        {
+            // Create deterministic player ID based on sorted order
+            int playerId = playerIndex * 2; // Use even numbers: 0, 2, 4, etc.
+
+            // If this is the local player (match by Nakama user ID), detect host status and update local player ID
+            var nakama = NakamaManager.Instance;
+            if (nakama?.Session?.UserId == nakamaPlayer.UserId)
+            {
+                // Keep the deterministic ID for consistency
+                isLocalPlayerHost = (playerIndex == 0); // First player in sorted order is host
+
+                // 🔥 CRITICAL: Update GameManager's LocalPlayer ID to match the deterministic game ID
+                if (gameManager?.LocalPlayer != null)
+                {
+                    var oldId = gameManager.LocalPlayer.PlayerId;
+                    gameManager.LocalPlayer.PlayerId = playerId;
+                    GD.Print($"CardGameUI: Updated local player ID from {oldId} to {playerId} for card synchronization");
+                }
+
+                GD.Print($"CardGameUI: Local player found - using ID {playerId}, isHost: {isLocalPlayerHost}");
+            }
+
+            // Create PlayerData for GameManager
+            var playerData = new PlayerData
+            {
+                PlayerId = playerId,
+                PlayerName = nakamaPlayer.Username,
+                ThrowPower = 1,
+                MoveSpeed = 1,
+                Composure = 1,
+                TotalXP = 0
+            };
+
+            gameManager.AddPlayer(playerId, playerData);
+            playerIds.Add(playerId);
+
+            GD.Print($"CardGameUI: Added player {nakamaPlayer.Username} with ID {playerId}");
+            playerIndex++;
+        }
+
+        // Sort player IDs for consistency
+        playerIds.Sort();
+
+        // 🔥 VALIDATION: Final check that we successfully converted all players to game IDs
+        GD.Print($"CardGameUI: Successfully converted {playerIds.Count} players to game IDs: [{string.Join(", ", playerIds)}]");
+
+        // 🔥 NEW: Add AI players to fill up to 4 players (like in traditional multiplayer)
+        if (playerIds.Count < 4)
+        {
+            GD.Print($"🤖 CardGameUI: NAKAMA GAME - Adding AI players to fill {4 - playerIds.Count} slots");
+            GD.Print($"🤖 CardGameUI: Current human players: {playerIds.Count}/4");
+
+            // Add AI players with IDs that don't conflict with real players
+            int nextAiId = 100; // Start AI IDs at 100 to avoid conflicts
+            while (playerIds.Count < 4)
+            {
+                // Find next available AI ID
+                while (playerIds.Contains(nextAiId) || gameManager.ConnectedPlayers.ContainsKey(nextAiId))
+                {
+                    nextAiId++;
+                }
+
+                playerIds.Add(nextAiId);
+
+                // Create AI player data
+                var aiPlayerData = new PlayerData
+                {
+                    PlayerId = nextAiId,
+                    PlayerName = $"AI_Player_{nextAiId}",
+                    ThrowPower = 1,
+                    MoveSpeed = 1,
+                    Composure = 1,
+                    TotalXP = 0
+                };
+
+                // Add AI player to GameManager so it's tracked properly
+                gameManager.AddPlayer(nextAiId, aiPlayerData);
+
+                GD.Print($"🤖 CardGameUI: ✅ Added AI player {aiPlayerData.PlayerName} (ID: {nextAiId}) to Nakama game");
+                nextAiId++;
+            }
+
+            // Sort the final list to ensure deterministic order
+            playerIds.Sort();
+            GD.Print($"🤖 CardGameUI: 🎯 FINAL PLAYER ROSTER: {playerIds.Count} players total [{string.Join(", ", playerIds)}]");
+        }
+        else
+        {
+            GD.Print($"🤖 CardGameUI: Game already has 4 players - no AI players needed");
+        }
+
+        // 🔥 CRITICAL: Start the card game directly (bypassing network setup since Nakama handles networking)
+        if (cardManager != null && playerIds.Count >= 2)
+        {
+            GD.Print($"CardGameUI: Starting CardManager game with {playerIds.Count} players: [{string.Join(", ", playerIds)}]");
+
+            cardManager.SetShuffleSeed(seed);
+            GD.Print($"🎲 CardGameUI: Using seed: {seed}");
+
+            // For Nakama games, we don't use the traditional host/client networking
+            // We'll use direct local start but sync via Nakama messages
+            cardManager.StartGame(playerIds);
+
+            // 🔥 CRITICAL: Mark game start as processed to prevent duplicate calls
+            gameStartProcessed = true;
+            gameStartRetryCount = 0; // Reset retry count on success
+            GD.Print("CardGameUI: Game start successfully processed - flag set");
+        }
+        else
+        {
+            GD.PrintErr("CardGameUI: Cannot start card dealing - CardManager missing or no players!");
+        }
+    }
+
+    /// <summary>
+    /// Start the game with synchronized seed from MatchManager
+    /// </summary>
+    private void StartGameWithSynchronizedSeed(int synchronizedSeed)
+    {
+        StartGameWithSeed(synchronizedSeed);
     }
 }
 

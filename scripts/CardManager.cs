@@ -34,6 +34,9 @@ public partial class CardManager : Node
     public List<CardPlay> CurrentTrick { get; private set; } = new();
     public int TricksPlayed { get; private set; } = 0;
 
+    // 🔥 NEW: Track pending card plays to prevent duplicates
+    private readonly HashSet<string> pendingCardPlays = new();
+
     // Turn timer
     private Godot.Timer turnTimer;
     private bool timerActive = false;
@@ -78,6 +81,16 @@ public partial class CardManager : Node
 
         // Initialize deck
         InitializeDeck();
+
+        // 🔥 NEW: Connect to MatchManager for Nakama card play synchronization
+        var matchManager = MatchManager.Instance;
+        if (matchManager != null)
+        {
+            matchManager.CardPlayReceived += OnNakamaCardPlayReceived;
+            matchManager.TurnChangeReceived += OnNakamaTurnChangeReceived;
+            matchManager.CardsDealt += OnNakamaCardsDealt;
+            GD.Print("CardManager: Connected to MatchManager for card play, turn, and card dealing synchronization");
+        }
     }
 
     public override void _Process(double delta)
@@ -358,6 +371,24 @@ public partial class CardManager : Node
     {
         var gameManager = GameManager.Instance;
         var networkManager = gameManager?.NetworkManager;
+        var matchManager = MatchManager.Instance;
+
+        // 🔥 NEW: For Nakama games, only match owner deals cards
+        if (matchManager?.HasActiveMatch == true)
+        {
+            if (matchManager.IsLocalPlayerMatchOwner())
+            {
+                GD.Print("CardManager: NAKAMA MATCH OWNER - dealing cards and syncing via Nakama");
+                HostDealAndSyncCards();
+            }
+            else
+            {
+                GD.Print("CardManager: NAKAMA CLIENT - waiting for match owner to deal cards");
+                // Non-match-owner instances wait for card synchronization via Nakama
+                return;
+            }
+            return;
+        }
 
         // CRITICAL FIX: Only HOST deals cards, then syncs to clients
         if (networkManager != null && networkManager.IsConnected)
@@ -412,7 +443,30 @@ public partial class CardManager : Node
                 }
             }
 
-            GD.Print($"CardManager: HOST dealt {PlayerHands[playerId].Count} cards to player {playerId}");
+            GD.Print($"CardManager: HOST dealt 13 cards to player {playerId}");
+
+            // For Nakama games, sync the dealt cards to all other players
+            var matchManager = MatchManager.Instance;
+            if (matchManager?.HasActiveMatch == true && matchManager.IsLocalPlayerMatchOwner())
+            {
+                GD.Print("CardManager: NAKAMA MATCH OWNER - syncing dealt cards to all players");
+
+                // Convert all player hands to string format for synchronization
+                var handsToSync = new Dictionary<int, List<string>>();
+                foreach (var kvp in PlayerHands)
+                {
+                    int playerHandId = kvp.Key;
+                    var hand = kvp.Value;
+                    handsToSync[playerHandId] = hand.Select(card => card.ToString()).ToList();
+                }
+
+                // Send to all players (including self for consistency)
+                _ = matchManager.SendCardsDealt(handsToSync);
+                GD.Print($"CardManager: NAKAMA MATCH OWNER - sent dealt cards for {handsToSync.Count} players");
+            }
+
+            // Emit signal for local UI update
+            EmitSignal(SignalName.HandDealt, playerId);
         }
 
         // CRITICAL FIX: Sync dealt hands to all clients
@@ -590,6 +644,19 @@ public partial class CardManager : Node
 
         var gameManager = GameManager.Instance;
         var networkManager = gameManager?.NetworkManager;
+        var matchManager = MatchManager.Instance;
+
+        // 🔥 NEW: For Nakama games, only match owner manages turns
+        if (matchManager?.HasActiveMatch == true)
+        {
+            if (!matchManager.IsLocalPlayerMatchOwner())
+            {
+                GD.Print($"CardManager: NAKAMA CLIENT - not managing turns, waiting for match owner");
+                EmitSignal(SignalName.TurnStarted, currentPlayerId);
+                return;
+            }
+            GD.Print($"CardManager: NAKAMA MATCH OWNER - managing turn for player {currentPlayerId}");
+        }
 
         // If networked, only host manages turn timing
         if (networkManager != null && networkManager.IsConnected && !networkManager.IsHost)
@@ -681,12 +748,24 @@ public partial class CardManager : Node
     }
 
     /// <summary>
-    /// End the current turn and move to next player (HOST ONLY)
+    /// End the current player's turn and move to next player (HOST ONLY)
     /// </summary>
     private void EndTurn()
     {
         var gameManager = GameManager.Instance;
         var networkManager = gameManager?.NetworkManager;
+        var matchManager = MatchManager.Instance;
+
+        // 🔥 NEW: For Nakama games, only match owner manages turn endings
+        if (matchManager?.HasActiveMatch == true)
+        {
+            if (!matchManager.IsLocalPlayerMatchOwner())
+            {
+                GD.Print($"CardManager: NAKAMA CLIENT - not managing turn endings, waiting for match owner");
+                return;
+            }
+            GD.Print($"CardManager: NAKAMA MATCH OWNER - managing turn ending");
+        }
 
         // CRITICAL FIX: Only host can manage turn progression
         if (networkManager != null && networkManager.IsConnected && !networkManager.IsHost)
@@ -715,6 +794,12 @@ public partial class CardManager : Node
         int previousTurn = CurrentPlayerTurn;
         CurrentPlayerTurn = (CurrentPlayerTurn + 1) % PlayerOrder.Count;
         GD.Print($"CardManager: HOST moving to next player - new CurrentPlayerTurn: {CurrentPlayerTurn} (Player {PlayerOrder[CurrentPlayerTurn]})");
+
+        // 🔥 NEW: For Nakama games, sync turn changes to all instances
+        if (matchManager?.HasActiveMatch == true && matchManager.IsLocalPlayerMatchOwner())
+        {
+            _ = matchManager.SendTurnChange(CurrentPlayerTurn, TricksPlayed);
+        }
 
         // CRITICAL FIX: Sync turn change to all clients
         if (networkManager != null && networkManager.IsConnected)
@@ -764,15 +849,65 @@ public partial class CardManager : Node
     }
 
     /// <summary>
-    /// Play a card for the current player - handles both local and network calls
+    /// Attempt to play a card for a player
     /// </summary>
-    /// <param name="playerId">Player making the move</param>
-    /// <param name="card">Card being played</param>
+    /// <param name="playerId">Player attempting to play</param>
+    /// <param name="card">Card to play</param>
+    /// <returns>True if card was successfully played</returns>
     public bool PlayCard(int playerId, Card card)
     {
         var gameManager = GameManager.Instance;
         var networkManager = gameManager?.NetworkManager;
+        var matchManager = MatchManager.Instance;
 
+        // 🔥 NEW: For Nakama games, send to MatchManager for synchronization
+        if (matchManager?.HasActiveMatch == true)
+        {
+            GD.Print($"CardManager: Nakama game - sending card play to MatchManager - Player {playerId}: {card}");
+
+            // Validate locally first to provide immediate feedback
+            if (PlayerOrder[CurrentPlayerTurn] != playerId)
+            {
+                GD.PrintErr($"CardManager: Not player {playerId}'s turn");
+                return false;
+            }
+
+            if (!PlayerHands[playerId].Contains(card))
+            {
+                GD.PrintErr($"CardManager: Player {playerId} doesn't have card {card}");
+                return false;
+            }
+
+            if (!IsValidCardPlay(playerId, card))
+            {
+                GD.PrintErr($"CardManager: Invalid card play: {card}");
+                return false;
+            }
+
+            // 🔥 NEW: Prevent duplicate card plays
+            string playKey = $"{playerId}_{card}";
+            if (pendingCardPlays.Contains(playKey))
+            {
+                GD.Print($"CardManager: Duplicate card play prevented - {playKey} already pending");
+                return false;
+            }
+            pendingCardPlays.Add(playKey);
+            GD.Print($"CardManager: Added pending card play: {playKey}");
+
+            // 🔥 NEW: Provide immediate visual feedback by removing card from UI
+            // The card will be added back if the play fails during Nakama sync
+            EmitSignal(SignalName.CardPlayed, playerId, card.ToString());
+            GD.Print($"CardManager: Immediate visual feedback - card removed from UI");
+
+            // 🔥 FIXED: Send to all instances via Nakama but DON'T execute locally
+            // All execution will happen when the message is received back from Nakama
+            _ = matchManager.SendCardPlay(playerId, card.Suit.ToString(), card.Rank.ToString());
+
+            GD.Print($"CardManager: Card play sent to Nakama - will execute when received back");
+            return true;
+        }
+
+        // Traditional ENet multiplayer logic
         if (networkManager != null && networkManager.IsConnected)
         {
             bool isLocalPlayer = gameManager.LocalPlayer?.PlayerId == playerId;
@@ -1347,6 +1482,231 @@ public partial class CardManager : Node
         if (turnTimer != null)
         {
             turnTimer.QueueFree();
+        }
+    }
+
+    /// <summary>
+    /// Handle card play synchronization from Nakama
+    /// </summary>
+    /// <param name="playerId">Player ID</param>
+    /// <param name="suit">Card suit as string</param>
+    /// <param name="rank">Card rank as string</param>
+    private void OnNakamaCardPlayReceived(int playerId, string suit, string rank)
+    {
+        // Convert strings back to enum types
+        if (!Enum.TryParse<Suit>(suit, out var cardSuit) || !Enum.TryParse<Rank>(rank, out var cardRank))
+        {
+            GD.PrintErr($"CardManager: Failed to parse card from Nakama - Suit: {suit}, Rank: {rank}");
+            return;
+        }
+
+        var card = new Card(cardSuit, cardRank);
+
+        GD.Print($"CardManager: Received card play from Nakama - Player {playerId}: {card}");
+
+        // Validate if it's the current player's turn
+        if (PlayerOrder[CurrentPlayerTurn] != playerId)
+        {
+            GD.PrintErr($"CardManager: Received card play from player {playerId} but it's not their turn (CurrentTurn: {CurrentPlayerTurn}, PlayerOrder[CurrentTurn]: {PlayerOrder[CurrentPlayerTurn]})");
+            return;
+        }
+
+        // Validate if the player is at the table
+        var gameManager = GameManager.Instance;
+        if (gameManager == null || !gameManager.IsPlayerAtTable(playerId))
+        {
+            GD.PrintErr($"CardManager: Received card play from player {playerId} but they are not at the table.");
+            return;
+        }
+
+        // Validate if the player has the card
+        if (!PlayerHands.ContainsKey(playerId) || !PlayerHands[playerId].Contains(card))
+        {
+            GD.PrintErr($"CardManager: Received card play from player {playerId} but they do not have the card {card} in their hand.");
+            return;
+        }
+
+        // Validate if the card play is legal
+        if (!IsValidCardPlay(playerId, card))
+        {
+            GD.PrintErr($"CardManager: Received card play from player {playerId} but it's an invalid play: {card}");
+            return;
+        }
+
+        // Execute the card play synchronized from another instance
+        ExecuteSynchronizedCardPlay(playerId, card);
+    }
+
+    /// <summary>
+    /// Execute a synchronized card play received from another instance (Nakama)
+    /// </summary>
+    /// <param name="playerId">Player ID</param>
+    /// <param name="card">Card being played</param>
+    private void ExecuteSynchronizedCardPlay(int playerId, Card card)
+    {
+        GD.Print($"CardManager: Executing synchronized card play - Player {playerId}: {card}");
+
+        // 🔥 NEW: Clear pending play to allow future plays of this card/player combination
+        string playKey = $"{playerId}_{card}";
+        if (pendingCardPlays.Contains(playKey))
+        {
+            pendingCardPlays.Remove(playKey);
+            GD.Print($"CardManager: Cleared pending card play: {playKey}");
+        }
+
+        // Remove card from player's hand
+        if (PlayerHands.ContainsKey(playerId) && PlayerHands[playerId].Contains(card))
+        {
+            PlayerHands[playerId].Remove(card);
+        }
+
+        // Add to current trick
+        CurrentTrick.Add(new CardPlay(playerId, card));
+
+        // Emit signal for UI updates
+        EmitSignal(SignalName.CardPlayed, playerId, card.ToString());
+
+        var matchManager = MatchManager.Instance;
+
+        // 🔥 CRITICAL: For Nakama games, only match owner progresses turns
+        // Non-match-owner instances just update their local state
+        if (matchManager?.HasActiveMatch == true && !matchManager.IsLocalPlayerMatchOwner())
+        {
+            GD.Print($"CardManager: NAKAMA CLIENT - card play synchronized, waiting for turn progression from match owner");
+            // Don't call EndTurn() - match owner will handle turn progression and sync it
+        }
+        else
+        {
+            // Match owner or traditional network game - progress the turn
+            EndTurn();
+        }
+
+        GD.Print($"CardManager: Synchronized card play completed - Player {playerId}: {card}");
+    }
+
+    /// <summary>
+    /// Handle turn change synchronization from Nakama (for non-match-owner instances)
+    /// </summary>
+    /// <param name="currentPlayerTurn">Current player turn index</param>
+    /// <param name="tricksPlayed">Number of tricks played</param>
+    private void OnNakamaTurnChangeReceived(int currentPlayerTurn, int tricksPlayed)
+    {
+        var matchManager = MatchManager.Instance;
+
+        // Only non-match-owner instances should sync turn changes
+        if (matchManager?.HasActiveMatch == true && !matchManager.IsLocalPlayerMatchOwner())
+        {
+            GD.Print($"CardManager: NAKAMA CLIENT - synchronizing turn change: PlayerTurn={currentPlayerTurn}, Tricks={tricksPlayed}");
+
+            // Update local game state
+            CurrentPlayerTurn = currentPlayerTurn;
+            TricksPlayed = tricksPlayed;
+
+            // Emit turn started signal if valid
+            if (CurrentPlayerTurn < PlayerOrder.Count)
+            {
+                int currentPlayerId = PlayerOrder[CurrentPlayerTurn];
+                EmitSignal(SignalName.TurnStarted, currentPlayerId);
+                GD.Print($"CardManager: NAKAMA CLIENT - turn synchronized for player {currentPlayerId}");
+            }
+        }
+        else
+        {
+            GD.Print($"CardManager: Ignoring turn change sync - match owner manages turns locally");
+        }
+    }
+
+    /// <summary>
+    /// Handle card dealing synchronization from Nakama
+    /// </summary>
+    private void OnNakamaCardsDealt()
+    {
+        var matchManager = MatchManager.Instance;
+        if (matchManager == null) return;
+
+        // Only non-match-owner instances should sync dealt cards
+        if (matchManager.HasActiveMatch && !matchManager.IsLocalPlayerMatchOwner())
+        {
+            GD.Print($"CardManager: NAKAMA CLIENT - synchronizing dealt cards from match owner");
+
+            var dealtCards = matchManager.LastDealtCards;
+            foreach (var kvp in dealtCards)
+            {
+                int playerId = kvp.Key;
+                var cardStrings = kvp.Value;
+
+                // Convert card strings back to Card objects
+                var cards = new List<Card>();
+                foreach (var cardString in cardStrings)
+                {
+                    if (TryParseCardFromString(cardString, out Card card))
+                    {
+                        cards.Add(card);
+                    }
+                    else
+                    {
+                        GD.PrintErr($"CardManager: Failed to parse card string: {cardString}");
+                    }
+                }
+
+                // Update player's hand
+                if (PlayerHands.ContainsKey(playerId))
+                {
+                    PlayerHands[playerId] = cards;
+                    GD.Print($"CardManager: CLIENT hand updated for player {playerId} - {cards.Count} cards");
+                }
+                else
+                {
+                    GD.PrintErr($"CardManager: Received cards dealt for player {playerId} but they are not in PlayerHands!");
+                }
+            }
+
+            // Trigger UI update
+            EmitSignal(SignalName.HandDealt);
+            GD.Print($"CardManager: NAKAMA CLIENT - card dealing synchronization completed");
+        }
+        else
+        {
+            GD.Print($"CardManager: Ignoring cards dealt sync - match owner deals locally");
+        }
+    }
+
+    /// <summary>
+    /// Try to parse a card from its string representation
+    /// </summary>
+    /// <param name="cardString">String representation of card (e.g., "Ace of Spades")</param>
+    /// <param name="card">Parsed card object</param>
+    /// <returns>True if parsing succeeded</returns>
+    private bool TryParseCardFromString(string cardString, out Card card)
+    {
+        card = null;
+
+        try
+        {
+            // Card ToString() format is "Rank of Suit" (e.g., "Ace of Spades")
+            var parts = cardString.Split(new[] { " of " }, StringSplitOptions.None);
+            if (parts.Length != 2)
+            {
+                GD.PrintErr($"CardManager: Invalid card string format: {cardString}");
+                return false;
+            }
+
+            string rankString = parts[0];
+            string suitString = parts[1];
+
+            if (!Enum.TryParse<Rank>(rankString, out var cardRank) || !Enum.TryParse<Suit>(suitString, out var cardSuit))
+            {
+                GD.PrintErr($"CardManager: Failed to parse rank '{rankString}' or suit '{suitString}' from: {cardString}");
+                return false;
+            }
+
+            card = new Card(cardSuit, cardRank);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"CardManager: Exception parsing card string '{cardString}': {ex.Message}");
+            return false;
         }
     }
 }
