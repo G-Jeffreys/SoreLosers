@@ -643,22 +643,26 @@ cardManager.PlayerMissedTurn += OnPlayerMissedTurn; // NEW
 ### 4. SabotageManager (`scripts/SabotageManager.cs`)
 
 **Purpose**: Real-time sabotage system with egg throwing and stink bombs
+**🔥 NEW**: Complete Nakama multiplayer synchronization with bidirectional support
 
 #### Core Responsibilities
 - Item spawning and pickup management
-- Egg throwing with throw power scaling
+- Egg throwing with throw power scaling and Nakama networking
 - Stink bomb mechanics with area effects
 - Obstruction overlay system for visual effects
+- Multiplayer synchronization via MatchManager integration
 
 #### Sabotage Types
 
 ##### Egg Throwing
 - **Pickup**: Up to 3 eggs from egg trays
-- **Throw**: Projectile with configurable speed
-- **Effect**: Splat overlay covering percentage of screen
+- **Throw**: Instant application with Nakama network synchronization
+- **Targeting**: Full bidirectional support (Host ↔ Client) and self-targeting
+- **Effect**: Splat overlay covering percentage of screen with realistic PNG graphics
 - **Coverage**: 20% (Level 1) to 80% (Level 10) based on ThrowPower stat
 - **Cleanup**: Washable at sink locations
 - **Duration**: Permanent until cleaned
+- **Multiplayer**: Complete Nakama synchronization with thread-safe signal emission
 
 ##### Stink Bombs
 - **Pickup**: 1 bomb from spawn points

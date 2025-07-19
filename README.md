@@ -14,7 +14,7 @@ The multiplayer card game is **100% complete and production-ready**! All 18 crit
 - **⏱️ Synchronized Timers**: Turn countdown timers match exactly across all instances
 - **👥 Player Management**: Perfect player order consistency and status tracking
 - **🤖 AI Integration**: Seamless human + AI player games with perfect turn progression
-- **🎨 Visual Effects**: Working sabotage system with egg splats and chat intimidation
+- **🎨 Multiplayer Sabotage**: Complete egg throwing system with Nakama synchronization and bidirectional effects
 - **💬 Real-time Chat**: Cross-instance messaging via Nakama with perfect synchronization
 - **🏠 Room Code System**: Easy 6-character codes for joining matches
 - **🔧 Thread Safety**: All signals and network operations properly thread-safe
@@ -34,6 +34,7 @@ The multiplayer card game is **100% complete and production-ready**! All 18 crit
 - **Error Recovery Complete**: Graceful handling of all network timing and connection issues
 - **🔥 Perfect UI Synchronization**: Final memory isolation and race condition fixes ensure 100% UI reliability
 - **🔥 Auto-Forfeit Perfection**: Instance ownership validation eliminates all timing conflicts
+- **🥚 Nakama Egg Throwing**: Complete multiplayer sabotage implementation with bidirectional support and self-targeting
 
 ### 🎯 18 Critical Bugs Completely Resolved
 1. ✅ **Presence duplication** - duplicate presence tracking fixed

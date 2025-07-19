@@ -1268,6 +1268,36 @@ public partial class MatchManager : Node
         // Signal emitted - no logging to reduce spam
     }
 
+    /// <summary>
+    /// Handle egg thrown message from network
+    /// </summary>
+    private void HandleEggThrownMessage(string data)
+    {
+        try
+        {
+            var message = JsonSerializer.Deserialize<EggThrowMessage>(data);
+            var targetPosition = new Vector2(message.TargetPositionX, message.TargetPositionY);
+
+            GD.Print($"MatchManager: Received egg throw - Player {message.SourcePlayerId} -> Player {message.TargetPlayerId} at {targetPosition} with {message.Coverage:P1} coverage");
+
+            // 🔥 CRITICAL FIX: Use CallDeferred for thread safety - Nakama events come from background thread
+            CallDeferred(MethodName.EmitEggThrownSignal, message.SourcePlayerId, message.TargetPlayerId, targetPosition, message.Coverage);
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"MatchManager: Error handling egg thrown message: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Emit EggThrown signal from main thread (fixes threading issues)
+    /// </summary>
+    private void EmitEggThrownSignal(int sourcePlayerId, int targetPlayerId, Vector2 targetPosition, float coverage)
+    {
+        EmitSignal(SignalName.EggThrown, sourcePlayerId, targetPlayerId, targetPosition, coverage);
+        GD.Print($"MatchManager: EggThrown signal emitted - Player {sourcePlayerId} -> Player {targetPlayerId}");
+    }
+
     #endregion
 
     #region Message Data Structures

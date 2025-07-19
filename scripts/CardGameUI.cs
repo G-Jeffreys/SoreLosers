@@ -492,7 +492,8 @@ public partial class CardGameUI : Control
             matchManager.PlayerReadyChanged += OnPlayerReadyChanged;
             matchManager.GameStarted += OnMatchGameStarted;
             matchManager.ChatMessageReceived += OnMatchChatMessageReceived;
-            GD.Print("CardGameUI: Connected to MatchManager events including chat");
+            matchManager.EggThrown += OnNakamaEggThrown;
+            GD.Print("CardGameUI: Connected to MatchManager events including chat and sabotage");
 
             // 🔥 LOBBY: Initialize Nakama lobby instead of auto-starting
             CallDeferred(nameof(InitializeNakamaLobby));
@@ -1595,6 +1596,32 @@ public partial class CardGameUI : Control
         DisplayChatMessage(senderName, message);
 
         GD.Print($"CardGameUI: Chat message displayed successfully");
+    }
+
+    /// <summary>
+    /// Handle egg thrown event from MatchManager (Nakama)
+    /// </summary>
+    private void OnNakamaEggThrown(int sourcePlayerId, int targetPlayerId, Vector2 targetPosition, float coverage)
+    {
+        GD.Print($"CardGameUI: Received Nakama egg throw - Player {sourcePlayerId} -> Player {targetPlayerId} at {targetPosition} with {coverage:P1} coverage");
+
+        // Only show visual effect if local player is the target
+        if (gameManager?.LocalPlayer?.PlayerId == targetPlayerId)
+        {
+            GD.Print("CardGameUI: Local player is the target - creating egg splat visual effect");
+            CreateEggSplatVisual(targetPosition);
+        }
+        else
+        {
+            GD.Print($"CardGameUI: Local player (ID: {gameManager?.LocalPlayer?.PlayerId}) is not the target - no visual effect needed");
+        }
+
+        // Also trigger the SabotageManager's local effect application for proper state tracking
+        if (gameManager?.SabotageManager != null)
+        {
+            GD.Print("CardGameUI: Triggering SabotageManager local effect application for state tracking");
+            gameManager.SabotageManager.ApplyLocalEggEffect(sourcePlayerId, targetPlayerId, targetPosition, coverage);
+        }
     }
 
     /// <summary>

@@ -4,7 +4,41 @@
 
 **Date**: January 21, 2025  
 **Status**: 🎮 **100% PRODUCTION-READY** - Perfect multiplayer synchronization achieved  
-**Achievement**: All 18 critical synchronization bugs completely resolved (including final UI sync fixes)
+**Achievement**: All 18 critical synchronization bugs completely resolved + Complete Nakama sabotage system
+
+---
+
+## 🥚 NEW FEATURE: Complete Nakama Egg Throwing System
+
+### **Multiplayer Sabotage Implementation - PRODUCTION READY**
+**Date**: January 21, 2025  
+**Status**: ✅ **COMPLETE** - Full bidirectional multiplayer synchronization
+
+#### **🌐 Nakama Integration**
+- **✅ MatchManager OpCode**: Added `EggThrown = 12` to message system
+- **✅ Message Classes**: Complete `EggThrowMessage` with position, coverage, and timing data
+- **✅ Network Methods**: `SendEggThrow()` and `HandleEggThrownMessage()` with thread safety
+- **✅ Signal System**: Thread-safe signal emission using CallDeferred patterns
+
+#### **🎯 Complete Targeting Support**
+- **✅ Host → Client**: Host players can throw eggs at client players with full visual sync
+- **✅ Client → Host**: Client players can throw eggs at host players with full visual sync  
+- **✅ Self-Targeting**: Players can throw eggs at themselves (comedic effect)
+- **✅ Visual Effects**: Only target players see egg splat graphics for proper UX
+
+#### **🔧 Technical Implementation**
+- **✅ SabotageManager Update**: Detects Nakama games and routes to network vs local
+- **✅ CardGameUI Integration**: Connected to MatchManager.EggThrown signal
+- **✅ State Tracking**: Proper XP gain and effect tracking via local state management
+- **✅ Thread Safety**: All network events handled with proper main thread delegation
+
+#### **🎮 Game Flow**
+```
+Player Input (Space) → Player.ThrowEggAtActivePlayer() → SabotageManager.ApplyEggThrow()
+    → [Nakama Detected] → MatchManager.SendEggThrow() → Nakama Network
+    → All Clients: MatchManager.HandleEggThrownMessage() → CardGameUI.OnNakamaEggThrown()
+    → CreateEggSplatVisual() [if local player is target]
+```
 
 ---
 

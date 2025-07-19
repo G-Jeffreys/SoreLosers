@@ -253,6 +253,39 @@ public partial class SabotageManager : Node
         // Calculate coverage based on throw power (20% to 80% from PRD)
         float coverage = sourcePlayerData.GetThrowPowerCoverage();
 
+        // 🔥 NEW: Check if this is a Nakama multiplayer game
+        var matchManager = MatchManager.Instance;
+        if (matchManager?.HasActiveMatch == true)
+        {
+            GD.Print("SabotageManager: Nakama game detected - sending egg throw via network");
+
+            // Send to Nakama for multiplayer synchronization
+            _ = matchManager.SendEggThrow(sourcePlayerId, targetPlayerId, targetPosition, coverage);
+
+            // Record XP for the throwing player immediately (local action)
+            sourcePlayerData.AddSabotageXP(SabotageType.EggThrow);
+
+            GD.Print($"SabotageManager: Egg throw sent via Nakama - Player {sourcePlayerId} -> Player {targetPlayerId}");
+        }
+        else
+        {
+            // Fallback: Local-only application (single player or ENet)
+            GD.Print("SabotageManager: Local game detected - applying egg effect locally");
+            ApplyLocalEggEffect(sourcePlayerId, targetPlayerId, targetPosition, coverage);
+        }
+    }
+
+    /// <summary>
+    /// Apply egg effect locally (for single player, ENet, or when receiving from Nakama)
+    /// </summary>
+    /// <param name="sourcePlayerId">Player throwing the egg</param>
+    /// <param name="targetPlayerId">Player being targeted</param>
+    /// <param name="targetPosition">Position where egg hits</param>
+    /// <param name="coverage">Coverage percentage based on throw power</param>
+    public void ApplyLocalEggEffect(int sourcePlayerId, int targetPlayerId, Vector2 targetPosition, float coverage)
+    {
+        GD.Print($"SabotageManager: Applying local egg effect - Player {sourcePlayerId} -> Player {targetPlayerId} with {coverage:P1} coverage");
+
         // Create egg effect
         var eggEffect = new SabotageEffect(SabotageType.EggThrow, float.MaxValue, coverage); // Egg lasts until cleaned
 
@@ -269,14 +302,11 @@ public partial class SabotageManager : Node
             playerOverlays[targetPlayerId].ApplyEggSplat(coverage, targetPosition);
         }
 
-        // Record sabotage for XP
-        sourcePlayerData.AddSabotageXP(SabotageType.EggThrow);
-
         // Record being hit
         var targetPlayerData = GameManager.Instance?.GetPlayer(targetPlayerId);
         targetPlayerData?.RecordSabotageHit(SabotageType.EggThrow);
 
-        GD.Print($"SabotageManager: Egg throw applied with {coverage:P1} coverage");
+        GD.Print($"SabotageManager: Local egg effect applied with {coverage:P1} coverage");
 
         EmitSignal(SignalName.SabotageApplied, targetPlayerId, (int)SabotageType.EggThrow);
         EmitSignal(SignalName.EggThrown, sourcePlayerId, targetPlayerId, targetPosition);
