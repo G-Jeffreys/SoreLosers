@@ -69,6 +69,7 @@ public partial class CardGameUI : Control
 
         // 🔥 CRITICAL: Reset game start flag for fresh state
         gameStartProcessed = false;
+        gameStartRetryCount = 0;
 
         // Add to card_game_ui group for NetworkManager chat forwarding
         AddToGroup("card_game_ui");
@@ -1486,9 +1487,9 @@ public partial class CardGameUI : Control
         // Wait 500ms for MatchManager to sync all players
         await ToSignal(GetTree().CreateTimer(0.5f), SceneTreeTimer.SignalName.Timeout);
 
-        // 🔥 CRITICAL: Reset the processed flag so we can retry
+        // 🔥 CRITICAL: Reset the processed flag so we can retry (but keep retry count)
         gameStartProcessed = false;
-        GD.Print("CardGameUI: Reset game start flag for retry");
+        GD.Print($"CardGameUI: Reset game start flag for retry attempt {gameStartRetryCount}");
 
         // Retry the game start
         OnMatchGameStarted();
@@ -1496,6 +1497,8 @@ public partial class CardGameUI : Control
 
     // 🔥 CRITICAL: Guard to prevent multiple game starts
     private bool gameStartProcessed = false;
+    private int gameStartRetryCount = 0;
+    private const int MAX_GAME_START_RETRIES = 5;
 
     /// <summary>
     /// Handle game started via MatchManager
@@ -1528,11 +1531,36 @@ public partial class CardGameUI : Control
             var localPlayerId = gameManager.LocalPlayer?.PlayerId ?? 1;
             gameManager.ConnectedPlayers.Clear();
 
-            // 🔥 CRITICAL: Debug current MatchManager state
-            GD.Print($"CardGameUI: MatchManager.Players count: {matchManager.Players.Count}");
+            // 🔥 CRITICAL: Check expected vs actual player count for debugging
+            var expectedPlayerCount = matchManager.GetPlayerCount();
+            var actualPlayerCount = matchManager.Players.Count;
+
+            GD.Print($"CardGameUI: Expected players: {expectedPlayerCount}, Actual in collection: {actualPlayerCount}");
+            GD.Print($"CardGameUI: MatchManager.Players contents:");
             foreach (var kvp in matchManager.Players)
             {
-                GD.Print($"CardGameUI: MatchManager has player: {kvp.Value.Username} (ID: {kvp.Key})");
+                GD.Print($"  - {kvp.Value.Username} (ID: {kvp.Key}, Ready: {kvp.Value.IsReady})");
+            }
+
+            // 🔥 FIX: Wait for MatchManager to have all expected players
+            if (actualPlayerCount < expectedPlayerCount)
+            {
+                GD.PrintErr($"CardGameUI: MatchManager missing players - has {actualPlayerCount}, expected {expectedPlayerCount}");
+
+                if (gameStartRetryCount < MAX_GAME_START_RETRIES)
+                {
+                    gameStartRetryCount++;
+                    GD.PrintErr($"CardGameUI: Retry attempt {gameStartRetryCount}/{MAX_GAME_START_RETRIES} - Waiting for MatchManager player sync...");
+
+                    // 🔥 ATTEMPT RECOVERY: Try to wait and retry
+                    CallDeferred(MethodName.RetryGameStartWithDelay);
+                }
+                else
+                {
+                    GD.PrintErr($"CardGameUI: FATAL - Max retries ({MAX_GAME_START_RETRIES}) exceeded. MatchManager player sync failed.");
+                    GD.PrintErr("CardGameUI: This indicates a deeper synchronization issue with Nakama match state.");
+                }
+                return;
             }
 
             // Add all Nakama players to GameManager with deterministic IDs
@@ -1583,10 +1611,20 @@ public partial class CardGameUI : Control
             if (playerIds.Count < 2)
             {
                 GD.PrintErr($"CardGameUI: ERROR - Only {playerIds.Count} players found in MatchManager! Need at least 2 players.");
-                GD.PrintErr("CardGameUI: This might be a timing issue - MatchManager may not have all players synced yet.");
 
-                // 🔥 ATTEMPT RECOVERY: Try to wait and retry
-                CallDeferred(MethodName.RetryGameStartWithDelay);
+                if (gameStartRetryCount < MAX_GAME_START_RETRIES)
+                {
+                    gameStartRetryCount++;
+                    GD.PrintErr($"CardGameUI: Retry attempt {gameStartRetryCount}/{MAX_GAME_START_RETRIES} - MatchManager may not have all players synced yet.");
+
+                    // 🔥 ATTEMPT RECOVERY: Try to wait and retry
+                    CallDeferred(MethodName.RetryGameStartWithDelay);
+                }
+                else
+                {
+                    GD.PrintErr($"CardGameUI: FATAL - Max retries ({MAX_GAME_START_RETRIES}) exceeded. MatchManager player sync failed.");
+                    GD.PrintErr("CardGameUI: This indicates a deeper synchronization issue with Nakama match state.");
+                }
                 return;
             }
 
@@ -1611,6 +1649,7 @@ public partial class CardGameUI : Control
 
                 // 🔥 CRITICAL: Mark game start as processed to prevent duplicate calls
                 gameStartProcessed = true;
+                gameStartRetryCount = 0; // Reset retry count on success
                 GD.Print("CardGameUI: Game start successfully processed - flag set");
             }
             else
