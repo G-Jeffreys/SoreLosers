@@ -54,6 +54,10 @@ public partial class PlayerData : Resource
     [Export]
     public int TimesStinkBombed { get; set; } = 0;
 
+    // XP configuration
+    [Export]
+    public int ResilienceXPReward = 5; // XP awarded for surviving sabotage attacks
+
     // Constructors
     public PlayerData()
     {
@@ -293,7 +297,7 @@ public partial class PlayerData : Resource
     }
 
     /// <summary>
-    /// Record being hit by sabotage
+    /// Record being hit by sabotage and award Composure XP for building resilience
     /// </summary>
     /// <param name="sabotageType">Type of sabotage received</param>
     public void RecordSabotageHit(SabotageType sabotageType)
@@ -304,10 +308,28 @@ public partial class PlayerData : Resource
         {
             case SabotageType.EggThrow:
                 TimesEgged++;
+                // Award Composure XP for getting egged (builds resilience)
+                bool eggComposureLevelUp = AddComposureXP(ResilienceXPReward);
+                GD.Print($"PlayerData: Awarded {ResilienceXPReward} Composure XP for surviving egg throw");
+
+                if (eggComposureLevelUp)
+                {
+                    GD.Print($"PlayerData: Composure leveled up to {Composure} from surviving egg throws!");
+                }
                 break;
+
             case SabotageType.StinkBomb:
                 TimesStinkBombed++;
+                // Award Composure XP for getting stink bombed (builds resilience)
+                bool stinkComposureLevelUp = AddComposureXP(ResilienceXPReward);
+                GD.Print($"PlayerData: Awarded {ResilienceXPReward} Composure XP for surviving stink bomb");
+
+                if (stinkComposureLevelUp)
+                {
+                    GD.Print($"PlayerData: Composure leveled up to {Composure} from surviving stink bombs!");
+                }
                 break;
+
             default:
                 GD.PrintErr($"PlayerData: Unknown sabotage type: {sabotageType}");
                 break;

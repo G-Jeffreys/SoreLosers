@@ -281,6 +281,143 @@ Interact with CARD TABLE to rejoin game"
 horizontal_alignment = 1
 vertical_alignment = 1
 
+[node name="LeftStatsPanel" type="Panel" parent="KitchenView/KitchenUI"]
+layout_mode = 1
+anchors_preset = 4
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = 20.0
+offset_top = -200.0
+offset_right = 280.0
+offset_bottom = 200.0
+
+[node name="LeftStatsVBox" type="VBoxContainer" parent="KitchenView/KitchenUI/LeftStatsPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = -10.0
+
+[node name="LeftStatsTitle" type="Label" parent="KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox"]
+layout_mode = 2
+text = "🎮 PLAYER STATS"
+horizontal_alignment = 1
+
+[node name="PlayerNameLabel" type="Label" parent="KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox"]
+layout_mode = 2
+text = "Player: Loading..."
+horizontal_alignment = 1
+
+[node name="TotalXPLabel" type="Label" parent="KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox"]
+layout_mode = 2
+text = "Total XP: 0"
+horizontal_alignment = 1
+
+[node name="StatsSeparator1" type="HSeparator" parent="KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox"]
+layout_mode = 2
+
+[node name="ThrowPowerLabel" type="Label" parent="KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox"]
+layout_mode = 2
+text = "💪 Throw Power: Level 1"
+
+[node name="ThrowPowerProgress" type="ProgressBar" parent="KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox"]
+layout_mode = 2
+value = 0.0
+show_percentage = false
+
+[node name="ThrowPowerXPLabel" type="Label" parent="KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox"]
+layout_mode = 2
+text = "XP: 0 / 50 (20% coverage)"
+
+[node name="MoveSpeedLabel" type="Label" parent="KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox"]
+layout_mode = 2
+text = "⚡ Move Speed: Level 1"
+
+[node name="MoveSpeedProgress" type="ProgressBar" parent="KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox"]
+layout_mode = 2
+value = 0.0
+show_percentage = false
+
+[node name="MoveSpeedXPLabel" type="Label" parent="KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox"]
+layout_mode = 2
+text = "XP: 0 / 50 (110 px/s)"
+
+[node name="ComposureLabel" type="Label" parent="KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox"]
+layout_mode = 2
+text = "🧘 Composure: Level 1"
+
+[node name="ComposureProgress" type="ProgressBar" parent="KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox"]
+layout_mode = 2
+value = 0.0
+show_percentage = false
+
+[node name="ComposureXPLabel" type="Label" parent="KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox"]
+layout_mode = 2
+text = "XP: 0 / 50 (100% blur)"
+
+[node name="RightStatsPanel" type="Panel" parent="KitchenView/KitchenUI"]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -280.0
+offset_top = -200.0
+offset_right = -20.0
+offset_bottom = 200.0
+
+[node name="RightStatsVBox" type="VBoxContainer" parent="KitchenView/KitchenUI/RightStatsPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = -10.0
+
+[node name="RightStatsTitle" type="Label" parent="KitchenView/KitchenUI/RightStatsPanel/RightStatsVBox"]
+layout_mode = 2
+text = "📊 GAME STATS"
+horizontal_alignment = 1
+
+[node name="GamesPlayedLabel" type="Label" parent="KitchenView/KitchenUI/RightStatsPanel/RightStatsVBox"]
+layout_mode = 2
+text = "Games Played: 0"
+horizontal_alignment = 1
+
+[node name="WinRateLabel" type="Label" parent="KitchenView/KitchenUI/RightStatsPanel/RightStatsVBox"]
+layout_mode = 2
+text = "Win Rate: 0%"
+horizontal_alignment = 1
+
+[node name="StatsSeparator2" type="HSeparator" parent="KitchenView/KitchenUI/RightStatsPanel/RightStatsVBox"]
+layout_mode = 2
+
+[node name="GamesWonLabel" type="Label" parent="KitchenView/KitchenUI/RightStatsPanel/RightStatsVBox"]
+layout_mode = 2
+text = "🏆 Games Won: 0"
+
+[node name="GamesLostLabel" type="Label" parent="KitchenView/KitchenUI/RightStatsPanel/RightStatsVBox"]
+layout_mode = 2
+text = "💔 Games Lost: 0"
+
+[node name="SabotagesLabel" type="Label" parent="KitchenView/KitchenUI/RightStatsPanel/RightStatsVBox"]
+layout_mode = 2
+text = "💣 Successful Sabotages: 0"
+
+[node name="TimesEggedLabel" type="Label" parent="KitchenView/KitchenUI/RightStatsPanel/RightStatsVBox"]
+layout_mode = 2
+text = "🥚 Times Egged: 0"
+
+[node name="TimesStinkBombedLabel" type="Label" parent="KitchenView/KitchenUI/RightStatsPanel/RightStatsVBox"]
+layout_mode = 2
+text = "💨 Times Stink Bombed: 0"
+
 [node name="PlayersInfoPanel" type="VBoxContainer" parent="."]
 layout_mode = 1
 anchors_preset = 1

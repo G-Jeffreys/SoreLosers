@@ -24,6 +24,28 @@ public partial class CardGameUI : Control
     private CharacterBody2D player;
     private Label inventoryLabel;
 
+    // Stats panels UI elements (realtime phase) - MODIFIED: Only ThrowPower & MoveSpeed visible
+    private Panel leftStatsPanel;  // Shows: Player name, Total XP, ThrowPower, MoveSpeed
+    private Panel rightStatsPanel; // HIDDEN: Game statistics not shown to players
+    private Label playerNameLabel;
+    private Label totalXPLabel;
+    private Label throwPowerLabel;
+    private ProgressBar throwPowerProgress;
+    private Label throwPowerXPLabel;
+    private Label moveSpeedLabel;
+    private ProgressBar moveSpeedProgress;
+    private Label moveSpeedXPLabel;
+    private Label composureLabel;        // HIDDEN: Composure stat invisible to players
+    private ProgressBar composureProgress; // HIDDEN: Composure progress invisible
+    private Label composureXPLabel;      // HIDDEN: Composure XP invisible
+    private Label gamesPlayedLabel;      // HIDDEN: Game stats panel not shown
+    private Label winRateLabel;          // HIDDEN: Game stats panel not shown
+    private Label gamesWonLabel;         // HIDDEN: Game stats panel not shown
+    private Label gamesLostLabel;        // HIDDEN: Game stats panel not shown
+    private Label sabotagesLabel;        // HIDDEN: Game stats panel not shown
+    private Label timesEggedLabel;       // HIDDEN: Game stats panel not shown
+    private Label timesStinkBombedLabel; // HIDDEN: Game stats panel not shown
+
     // Reference to game systems
     private CardManager cardManager;
     private GameManager gameManager;
@@ -159,6 +181,28 @@ public partial class CardGameUI : Control
         player = GetNode<CharacterBody2D>("KitchenView/Player");
         inventoryLabel = GetNode<Label>("KitchenView/KitchenUI/InventoryLabel");
 
+        // Get references to stats panels UI elements
+        leftStatsPanel = GetNode<Panel>("KitchenView/KitchenUI/LeftStatsPanel");
+        rightStatsPanel = GetNode<Panel>("KitchenView/KitchenUI/RightStatsPanel");
+        playerNameLabel = GetNode<Label>("KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox/PlayerNameLabel");
+        totalXPLabel = GetNode<Label>("KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox/TotalXPLabel");
+        throwPowerLabel = GetNode<Label>("KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox/ThrowPowerLabel");
+        throwPowerProgress = GetNode<ProgressBar>("KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox/ThrowPowerProgress");
+        throwPowerXPLabel = GetNode<Label>("KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox/ThrowPowerXPLabel");
+        moveSpeedLabel = GetNode<Label>("KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox/MoveSpeedLabel");
+        moveSpeedProgress = GetNode<ProgressBar>("KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox/MoveSpeedProgress");
+        moveSpeedXPLabel = GetNode<Label>("KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox/MoveSpeedXPLabel");
+        composureLabel = GetNode<Label>("KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox/ComposureLabel");
+        composureProgress = GetNode<ProgressBar>("KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox/ComposureProgress");
+        composureXPLabel = GetNode<Label>("KitchenView/KitchenUI/LeftStatsPanel/LeftStatsVBox/ComposureXPLabel");
+        gamesPlayedLabel = GetNode<Label>("KitchenView/KitchenUI/RightStatsPanel/RightStatsVBox/GamesPlayedLabel");
+        winRateLabel = GetNode<Label>("KitchenView/KitchenUI/RightStatsPanel/RightStatsVBox/WinRateLabel");
+        gamesWonLabel = GetNode<Label>("KitchenView/KitchenUI/RightStatsPanel/RightStatsVBox/GamesWonLabel");
+        gamesLostLabel = GetNode<Label>("KitchenView/KitchenUI/RightStatsPanel/RightStatsVBox/GamesLostLabel");
+        sabotagesLabel = GetNode<Label>("KitchenView/KitchenUI/RightStatsPanel/RightStatsVBox/SabotagesLabel");
+        timesEggedLabel = GetNode<Label>("KitchenView/KitchenUI/RightStatsPanel/RightStatsVBox/TimesEggedLabel");
+        timesStinkBombedLabel = GetNode<Label>("KitchenView/KitchenUI/RightStatsPanel/RightStatsVBox/TimesStinkBombedLabel");
+
         // Get players info panel
         playersInfoContainer = GetNode<VBoxContainer>("PlayersInfoPanel");
 
@@ -196,6 +240,10 @@ public partial class CardGameUI : Control
             GD.PrintErr("DEBUG: Chat panel is NULL!");
         }
 
+        // Style the stats panels with professional appearance
+        StyleStatsPanel(leftStatsPanel, new Color(0.2f, 0.3f, 0.4f, 0.95f)); // Blue-tinted background
+        StyleStatsPanel(rightStatsPanel, new Color(0.3f, 0.2f, 0.4f, 0.95f)); // Purple-tinted background
+
         // Create overlay layer for visual sabotage effects
         overlayLayer = new Control();
         overlayLayer.Name = "SabotageOverlayLayer";
@@ -222,6 +270,9 @@ public partial class CardGameUI : Control
         // Connect to game systems
         ConnectToGameSystems();
 
+        // 🔥 NEW: Add to group for easy access by other systems
+        AddToGroup("card_game_ui");
+
         // Start at the table
         ShowCardTableView();
 
@@ -242,6 +293,7 @@ public partial class CardGameUI : Control
         UpdateTrickDisplayIfChanged(); // FIXED: Only update when trick changes
         UpdatePlayersInfo();
         UpdateLocationControls(); // Update location controls based on current player location
+        UpdateStatsDisplay(); // Update stats panels during realtime phase
     }
 
     /// <summary>
@@ -441,6 +493,219 @@ public partial class CardGameUI : Control
 
             label.Text = displayText;
         }
+    }
+
+    /// <summary>
+    /// Update the stats panels display with current player data
+    /// Always updates to ensure stats reflect current values regardless of view
+    /// </summary>
+    private void UpdateStatsDisplay()
+    {
+        // 🔥 CRITICAL FIX: Always update stats when LocalPlayer data exists, regardless of view
+        // Stats should reflect current values even when viewing card table
+        if (gameManager?.LocalPlayer == null)
+        {
+            return;
+        }
+
+        // 🔥 ADDITIONAL FIX: Only show/hide panels based on view, but always update data
+        bool shouldShowPanels = kitchenView.Visible;
+
+        // Update panel visibility (but still update the data)
+        if (leftStatsPanel != null)
+        {
+            leftStatsPanel.Visible = shouldShowPanels;
+        }
+
+        // 🔥 HIDE GAME STATS: Right panel is now always hidden from players
+        if (rightStatsPanel != null)
+        {
+            rightStatsPanel.Visible = false; // Always hidden - no game stats shown to players
+        }
+
+        var playerData = gameManager.LocalPlayer;
+
+        // Update left panel - Player stats and progression
+        if (playerNameLabel != null)
+        {
+            playerNameLabel.Text = $"Player: {playerData.PlayerName}";
+        }
+
+        if (totalXPLabel != null)
+        {
+            totalXPLabel.Text = $"Total XP: {playerData.TotalXP}";
+        }
+
+        // ThrowPower stat
+        if (throwPowerLabel != null)
+        {
+            throwPowerLabel.Text = $"💪 Throw Power: Level {playerData.ThrowPower}";
+        }
+
+        if (throwPowerProgress != null && throwPowerXPLabel != null)
+        {
+            int xpForNextLevel = PlayerData.GetXPRequiredForLevel(playerData.ThrowPower);
+            float progressPercent = (playerData.ThrowPower >= 10) ? 100.0f :
+                                  (xpForNextLevel > 0 ? (float)playerData.ThrowPowerXP / xpForNextLevel * 100.0f : 0.0f);
+
+            throwPowerProgress.Value = progressPercent;
+
+            float coverage = playerData.GetThrowPowerCoverage() * 100;
+            if (playerData.ThrowPower >= 10)
+            {
+                throwPowerXPLabel.Text = $"XP: MAX LEVEL ({coverage:F0}% coverage)";
+            }
+            else
+            {
+                throwPowerXPLabel.Text = $"XP: {playerData.ThrowPowerXP} / {xpForNextLevel} ({coverage:F0}% coverage)";
+            }
+        }
+
+        // MoveSpeed stat
+        if (moveSpeedLabel != null)
+        {
+            moveSpeedLabel.Text = $"⚡ Move Speed: Level {playerData.MoveSpeed}";
+        }
+
+        if (moveSpeedProgress != null && moveSpeedXPLabel != null)
+        {
+            int xpForNextLevel = PlayerData.GetXPRequiredForLevel(playerData.MoveSpeed);
+            float progressPercent = (playerData.MoveSpeed >= 10) ? 100.0f :
+                                  (xpForNextLevel > 0 ? (float)playerData.MoveSpeedXP / xpForNextLevel * 100.0f : 0.0f);
+
+            moveSpeedProgress.Value = progressPercent;
+
+            float speed = playerData.GetMovementSpeed();
+            if (playerData.MoveSpeed >= 10)
+            {
+                moveSpeedXPLabel.Text = $"XP: MAX LEVEL ({speed:F0} px/s)";
+            }
+            else
+            {
+                moveSpeedXPLabel.Text = $"XP: {playerData.MoveSpeedXP} / {xpForNextLevel} ({speed:F0} px/s)";
+            }
+        }
+
+        // 🔥 HIDDEN COMPOSURE STAT: Still functional but invisible to players
+        // Update the data (for backend functionality) but hide from UI
+        if (composureLabel != null)
+        {
+            composureLabel.Text = $"🧘 Composure: Level {playerData.Composure}";
+            composureLabel.Visible = false; // Hidden from players
+        }
+
+        if (composureProgress != null && composureXPLabel != null)
+        {
+            int xpForNextLevel = PlayerData.GetXPRequiredForLevel(playerData.Composure);
+            float progressPercent = (playerData.Composure >= 10) ? 100.0f :
+                                  (xpForNextLevel > 0 ? (float)playerData.ComposureXP / xpForNextLevel * 100.0f : 0.0f);
+
+            composureProgress.Value = progressPercent;
+            composureProgress.Visible = false; // Hidden from players
+
+            float blurStrength = playerData.GetBlurStrength() * 100;
+            if (playerData.Composure >= 10)
+            {
+                composureXPLabel.Text = $"XP: MAX LEVEL ({blurStrength:F0}% blur)";
+            }
+            else
+            {
+                composureXPLabel.Text = $"XP: {playerData.ComposureXP} / {xpForNextLevel} ({blurStrength:F0}% blur)";
+            }
+            composureXPLabel.Visible = false; // Hidden from players
+        }
+
+        // 🔥 GAME STATISTICS HIDDEN: Right panel is no longer shown to players
+        // Backend still tracks these stats but UI doesn't display them
+        // (Commented out to improve performance since panel is hidden)
+
+        /*
+        // Update right panel - Game statistics (HIDDEN FROM PLAYERS)
+        int gamesPlayed = playerData.GamesWon + playerData.GamesLost;
+        float winRate = gamesPlayed > 0 ? (float)playerData.GamesWon / gamesPlayed * 100.0f : 0.0f;
+
+        if (gamesPlayedLabel != null)
+        {
+            gamesPlayedLabel.Text = $"Games Played: {gamesPlayed}";
+        }
+
+        if (winRateLabel != null)
+        {
+            winRateLabel.Text = $"Win Rate: {winRate:F1}%";
+        }
+
+        if (gamesWonLabel != null)
+        {
+            gamesWonLabel.Text = $"🏆 Games Won: {playerData.GamesWon}";
+        }
+
+        if (gamesLostLabel != null)
+        {
+            gamesLostLabel.Text = $"💔 Games Lost: {playerData.GamesLost}";
+        }
+
+        if (sabotagesLabel != null)
+        {
+            sabotagesLabel.Text = $"💣 Successful Sabotages: {playerData.SuccessfulSabotages}";
+        }
+
+        if (timesEggedLabel != null)
+        {
+            timesEggedLabel.Text = $"🥚 Times Egged: {playerData.TimesEgged}";
+        }
+
+        if (timesStinkBombedLabel != null)
+        {
+            timesStinkBombedLabel.Text = $"💨 Times Stink Bombed: {playerData.TimesStinkBombed}";
+        }
+        */
+    }
+
+    /// <summary>
+    /// Force immediate stats refresh (called when stats change due to sabotage, XP, etc.)
+    /// </summary>
+    public void ForceStatsRefresh()
+    {
+        // 🔥 REDUCED LOGGING: Only log visible stats (composure is hidden from players)
+        if (gameManager?.LocalPlayer != null)
+        {
+            var player = gameManager.LocalPlayer;
+            GD.Print($"📊 STATS REFRESH: ThrowPower={player.ThrowPower}, MoveSpeed={player.MoveSpeed}, TotalXP={player.TotalXP}");
+        }
+
+        // Force an immediate update regardless of normal timing
+        UpdateStatsDisplay();
+    }
+
+    /// <summary>
+    /// Apply professional styling to a stats panel
+    /// </summary>
+    /// <param name="panel">Panel to style</param>
+    /// <param name="backgroundColor">Background color for the panel</param>
+    private void StyleStatsPanel(Panel panel, Color backgroundColor)
+    {
+        if (panel == null) return;
+
+        var styleBox = new StyleBoxFlat();
+        styleBox.BgColor = backgroundColor;
+        styleBox.BorderColor = new Color(1.0f, 1.0f, 1.0f, 0.3f); // Subtle white border
+        styleBox.BorderWidthLeft = 2;
+        styleBox.BorderWidthTop = 2;
+        styleBox.BorderWidthRight = 2;
+        styleBox.BorderWidthBottom = 2;
+        styleBox.CornerRadiusTopLeft = 8;
+        styleBox.CornerRadiusTopRight = 8;
+        styleBox.CornerRadiusBottomLeft = 8;
+        styleBox.CornerRadiusBottomRight = 8;
+
+        // Add subtle shadow effect
+        styleBox.ShadowColor = new Color(0.0f, 0.0f, 0.0f, 0.3f);
+        styleBox.ShadowSize = 4;
+        styleBox.ShadowOffset = new Vector2(2, 2);
+
+        panel.AddThemeStyleboxOverride("panel", styleBox);
+
+        GD.Print($"CardGameUI: Applied professional styling to stats panel with background {backgroundColor}");
     }
 
     /// <summary>
@@ -1616,11 +1881,26 @@ public partial class CardGameUI : Control
             GD.Print($"CardGameUI: Local player (ID: {gameManager?.LocalPlayer?.PlayerId}) is not the target - no visual effect needed");
         }
 
-        // Also trigger the SabotageManager's local effect application for proper state tracking
+        // 🔥 CRITICAL FIX: Only apply the sabotage effect if this is the victim's own client
+        // Stats should only be updated on the victim's instance to prevent duplicates/conflicts
+        bool isLocalPlayerVictim = (gameManager?.LocalPlayer?.PlayerId == targetPlayerId);
+
         if (gameManager?.SabotageManager != null)
         {
-            GD.Print("CardGameUI: Triggering SabotageManager local effect application for state tracking");
-            gameManager.SabotageManager.ApplyLocalEggEffect(sourcePlayerId, targetPlayerId, targetPosition, coverage);
+            if (isLocalPlayerVictim)
+            {
+                GD.Print($"CardGameUI: 🎯 Local player IS the victim - applying full sabotage effect with stats update");
+                gameManager.SabotageManager.ApplyLocalEggEffect(sourcePlayerId, targetPlayerId, targetPosition, coverage);
+
+                // 🔥 CRITICAL FIX: Force immediate stats refresh when local player gets hit
+                GD.Print($"🎯 Egged - refreshing stats");
+                ForceStatsRefresh();
+            }
+            else
+            {
+                GD.Print($"CardGameUI: 👀 Local player is NOT the victim - applying visual-only effect (no stats update)");
+                gameManager.SabotageManager.ApplyVisualOnlyEggEffect(sourcePlayerId, targetPlayerId, targetPosition, coverage);
+            }
         }
     }
 
@@ -1801,6 +2081,10 @@ public partial class CardGameUI : Control
                     break;
                     // EggThrow is handled by OnEggThrown event
             }
+
+            // 🔥 CRITICAL FIX: Force stats refresh when local player gets hit by any sabotage
+            GD.Print($"🎯 Hit by {sabotageType} - refreshing stats");
+            ForceStatsRefresh();
         }
     }
 

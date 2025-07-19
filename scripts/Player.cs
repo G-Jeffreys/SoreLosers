@@ -33,6 +33,16 @@ public partial class Player : CharacterBody2D
     // UI reference for inventory updates
     private Label inventoryLabel;
 
+    // Movement XP tracking
+    private Vector2 lastPosition = Vector2.Zero;
+    private float accumulatedDistance = 0.0f;
+
+    [Export]
+    public float XPDistanceThreshold = 500.0f; // Award XP per this many pixels moved
+
+    [Export]
+    public int MovementXPReward = 1; // Small amount to prevent exploitation
+
     // Events
     [Signal]
     public delegate void PlayerMovedEventHandler(Vector2 newPosition);
@@ -96,6 +106,9 @@ public partial class Player : CharacterBody2D
         // Update inventory display
         UpdateInventoryDisplay();
 
+        // Initialize movement tracking
+        lastPosition = GlobalPosition;
+
         GD.Print($"Player: Player controller initialized with speed {CurrentSpeed}");
     }
 
@@ -152,11 +165,73 @@ public partial class Player : CharacterBody2D
         Velocity = velocity;
         MoveAndSlide();
 
+        // Track movement for XP (only in kitchen)
+        TrackMovementForXP();
+
         // Debug visualization
         if (ShowDebugInfo)
         {
             DebugDrawMovement();
         }
+    }
+
+    /// <summary>
+    /// Track movement distance and award MoveSpeed XP for natural movement
+    /// Only awards XP when player is in kitchen phase to encourage exploration
+    /// </summary>
+    private void TrackMovementForXP()
+    {
+        // Only track movement when player is in kitchen
+        if (GameManager.Instance != null && PlayerData != null)
+        {
+            var playerLocation = GameManager.Instance.GetPlayerLocation(PlayerData.PlayerId);
+            if (playerLocation != GameManager.PlayerLocation.InKitchen)
+            {
+                return; // Don't track movement at card table
+            }
+        }
+        else
+        {
+            return; // Can't determine location, skip XP tracking
+        }
+
+        // Calculate distance moved this frame
+        Vector2 currentPosition = GlobalPosition;
+        float distanceMoved = lastPosition.DistanceTo(currentPosition);
+
+        // Accumulate distance
+        accumulatedDistance += distanceMoved;
+
+        // Award XP when threshold is reached
+        if (accumulatedDistance >= XPDistanceThreshold)
+        {
+            if (PlayerData != null)
+            {
+                bool leveledUp = PlayerData.AddMoveSpeedXP(MovementXPReward);
+
+                GD.Print($"Player: Awarded {MovementXPReward} MoveSpeed XP for moving {accumulatedDistance:F0} pixels");
+
+                if (leveledUp)
+                {
+                    GD.Print($"Player: MoveSpeed leveled up to {PlayerData.MoveSpeed}!");
+                    UpdateMovementSpeed(); // Update speed immediately after level up
+                }
+
+                // 🔥 NEW: Notify UI to refresh stats when movement XP is gained
+                var cardGameUI = GetTree().GetFirstNodeInGroup("card_game_ui") as CardGameUI;
+                if (cardGameUI != null)
+                {
+                    GD.Print($"🏃 Movement XP - refreshing stats");
+                    cardGameUI.ForceStatsRefresh();
+                }
+            }
+
+            // Reset distance counter
+            accumulatedDistance = 0.0f;
+        }
+
+        // Update last position for next frame
+        lastPosition = currentPosition;
     }
 
     /// <summary>

@@ -302,11 +302,71 @@ public partial class SabotageManager : Node
             playerOverlays[targetPlayerId].ApplyEggSplat(coverage, targetPosition);
         }
 
-        // Record being hit
+        // 🔥 ENHANCED: Record being hit with concise logging to avoid overflow
         var targetPlayerData = GameManager.Instance?.GetPlayer(targetPlayerId);
-        targetPlayerData?.RecordSabotageHit(SabotageType.EggThrow);
+        if (targetPlayerData != null)
+        {
+            // 🔥 CONCISE: Log essential stats before/after
+            int timesEggedBefore = targetPlayerData.TimesEgged;
+            int composureXPBefore = targetPlayerData.ComposureXP;
+
+            // Record the sabotage hit - this should increment TimesEgged and add Composure XP
+            targetPlayerData.RecordSabotageHit(SabotageType.EggThrow);
+
+            // 🔥 CONCISE: Log essential changes only
+            int timesEggedAfter = targetPlayerData.TimesEgged;
+            int composureXPAfter = targetPlayerData.ComposureXP;
+
+            GD.Print($"🥚 EGG HIT P{targetPlayerId}: Egged {timesEggedBefore}→{timesEggedAfter}, XP {composureXPBefore}→{composureXPAfter}");
+
+            if (timesEggedAfter == timesEggedBefore || composureXPAfter == composureXPBefore)
+            {
+                GD.PrintErr($"❌ STATS NOT UPDATED for P{targetPlayerId}!");
+            }
+        }
+        else
+        {
+            GD.PrintErr($"❌ Player {targetPlayerId} data not found!");
+        }
 
         GD.Print($"SabotageManager: Local egg effect applied with {coverage:P1} coverage");
+
+        EmitSignal(SignalName.SabotageApplied, targetPlayerId, (int)SabotageType.EggThrow);
+        EmitSignal(SignalName.EggThrown, sourcePlayerId, targetPlayerId, targetPosition);
+    }
+
+    /// <summary>
+    /// Apply visual-only egg effect (for non-victim clients in multiplayer)
+    /// This applies visual effects but does NOT update victim's stats to prevent conflicts
+    /// </summary>
+    /// <param name="sourcePlayerId">Player throwing the egg</param>
+    /// <param name="targetPlayerId">Player being targeted</param>
+    /// <param name="targetPosition">Position where egg hits</param>
+    /// <param name="coverage">Coverage percentage based on throw power</param>
+    public void ApplyVisualOnlyEggEffect(int sourcePlayerId, int targetPlayerId, Vector2 targetPosition, float coverage)
+    {
+        GD.Print($"SabotageManager: Applying VISUAL-ONLY egg effect - Player {sourcePlayerId} -> Player {targetPlayerId} with {coverage:P1} coverage (NO STATS UPDATE)");
+
+        // Create egg effect for visual tracking only
+        var eggEffect = new SabotageEffect(SabotageType.EggThrow, float.MaxValue, coverage); // Egg lasts until cleaned
+
+        // Add to active effects for visual consistency
+        if (!ActiveEffects.ContainsKey(targetPlayerId))
+        {
+            ActiveEffects[targetPlayerId] = new List<SabotageEffect>();
+        }
+        ActiveEffects[targetPlayerId].Add(eggEffect);
+
+        // Apply egg splat overlay
+        if (playerOverlays.ContainsKey(targetPlayerId))
+        {
+            playerOverlays[targetPlayerId].ApplyEggSplat(coverage, targetPosition);
+        }
+
+        // 🔥 CRITICAL: DO NOT update victim's stats here - only the victim's own client should do that
+        GD.Print($"SabotageManager: 👀 VISUAL-ONLY effect applied - victim's stats will be updated on their own client");
+
+        GD.Print($"SabotageManager: Visual-only egg effect applied with {coverage:P1} coverage");
 
         EmitSignal(SignalName.SabotageApplied, targetPlayerId, (int)SabotageType.EggThrow);
         EmitSignal(SignalName.EggThrown, sourcePlayerId, targetPlayerId, targetPosition);
@@ -412,8 +472,23 @@ public partial class SabotageManager : Node
                         playerOverlays[playerId].ApplyStinkFog(blurIntensity, SabotageEffectDuration);
                     }
 
-                    // Record being hit
+                    // 🔥 CONCISE: Record stink bomb hit with essential logging
+                    int timesStinkBombedBefore = targetPlayerData.TimesStinkBombed;
+                    int composureXPBefore = targetPlayerData.ComposureXP;
+
+                    // Record the sabotage hit - this should increment TimesStinkBombed and add Composure XP
                     targetPlayerData.RecordSabotageHit(SabotageType.StinkBomb);
+
+                    // Log essential changes only
+                    int timesStinkBombedAfter = targetPlayerData.TimesStinkBombed;
+                    int composureXPAfter = targetPlayerData.ComposureXP;
+
+                    GD.Print($"💨 STINK HIT P{playerId}: Bombed {timesStinkBombedBefore}→{timesStinkBombedAfter}, XP {composureXPBefore}→{composureXPAfter}");
+
+                    if (timesStinkBombedAfter == timesStinkBombedBefore || composureXPAfter == composureXPBefore)
+                    {
+                        GD.PrintErr($"❌ STINK STATS NOT UPDATED for P{playerId}!");
+                    }
 
                     GD.Print($"SabotageManager: Player {playerId} affected by stink bomb (distance: {distance:F1}, blur: {blurIntensity:P1})");
 
