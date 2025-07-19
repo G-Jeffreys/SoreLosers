@@ -36,7 +36,13 @@ public partial class MatchManager : Node
     // 🔥 NEW: Store dealt cards for synchronization
     public Dictionary<int, List<string>> LastDealtCards { get; private set; } = new();
 
-    // Match operation codes (replaces 29 RPC methods with 7 message types)
+    // 🔥 FIXED: Track presences locally since currentMatch.Presences might be readonly
+    private List<IUserPresence> localPresences = new();
+
+    // 🔥 FIXED: Track original match owner to prevent ownership flipping
+    private string originalMatchOwnerId = "";
+
+    // Match operation codes (replaces 29 RPC methods with 8 message types)
     public enum MatchOpCode
     {
         PlayerJoined = 1,        // Player joins lobby
@@ -47,7 +53,10 @@ public partial class MatchManager : Node
         GameEnd = 6,             // Game completion
         ChatMessage = 7,         // Chat message between players
         NameUpdate = 8,          // Player name change
-        CardsDealt = 9           // Card dealing synchronization
+        CardsDealt = 9,          // Card dealing synchronization
+        TrickCompleted = 10,     // Trick completion synchronization
+        TimerUpdate = 11,        // Turn timer synchronization
+        EggThrown = 12           // Egg throwing sabotage
     }
 
     // Events for UI and game systems
@@ -62,6 +71,9 @@ public partial class MatchManager : Node
     [Signal] public delegate void CardPlayedEventHandler();
     [Signal] public delegate void TurnChangedEventHandler(string currentPlayerId);
     [Signal] public delegate void TrickCompletedEventHandler();
+    [Signal] public delegate void TrickCompletedReceivedEventHandler(int winnerId, int newTrickLeader, int winnerScore);
+    [Signal] public delegate void TimerUpdateReceivedEventHandler(float timeRemaining);
+    [Signal] public delegate void EggThrownEventHandler(int sourcePlayerId, int targetPlayerId, Vector2 targetPosition, float coverage);
     [Signal] public delegate void GameEndedEventHandler(string winnerId);
 
     public override void _Ready()
@@ -88,16 +100,50 @@ public partial class MatchManager : Node
             return;
         }
 
-        // Connect to Nakama socket events
-        if (nakama.Socket != null)
+        // 🔥 FIXED: Connect socket events when available
+        ConnectSocketEventsIfAvailable();
+    }
+
+    /// <summary>
+    /// Connect to Nakama socket events if the socket is available
+    /// Called when NakamaManager instance becomes available
+    /// </summary>
+    public void ConnectSocketEventsIfAvailable()
+    {
+        var processId = OS.GetProcessId();
+        nakama = NakamaManager.Instance;
+
+        GD.Print($"MatchManager[PID:{processId}]: ConnectSocketEventsIfAvailable called");
+        GD.Print($"MatchManager[PID:{processId}]: NakamaManager.Instance null: {nakama == null}");
+
+        if (nakama?.Socket != null)
         {
+            GD.Print($"MatchManager[PID:{processId}]: Socket available - connecting events");
+            GD.Print($"MatchManager[PID:{processId}]: Current match ID: {currentMatch?.Id ?? "null"}");
+
+            // Remove any existing connections to prevent duplicates
+            nakama.Socket.ReceivedMatchState -= OnMatchStateReceived;
+            nakama.Socket.ReceivedMatchPresence -= OnMatchPresenceReceived;
+
+            // Connect events
             nakama.Socket.ReceivedMatchState += OnMatchStateReceived;
             nakama.Socket.ReceivedMatchPresence += OnMatchPresenceReceived;
-            GD.Print("MatchManager: Connected to Nakama socket events");
+
+            GD.Print($"MatchManager[PID:{processId}]: ✅ Connected to Nakama socket events");
+            GD.Print($"MatchManager[PID:{processId}]: Socket.IsConnected: {nakama.Socket.IsConnected}");
+            GD.Print($"MatchManager[PID:{processId}]: Session valid: {nakama.Session != null && !nakama.Session.IsExpired}");
         }
         else
         {
-            GD.Print("MatchManager: Socket not ready yet, will connect events when socket is available");
+            if (nakama == null)
+            {
+                GD.Print($"MatchManager[PID:{processId}]: ❌ NakamaManager.Instance is null");
+            }
+            else if (nakama.Socket == null)
+            {
+                GD.Print($"MatchManager[PID:{processId}]: ❌ NakamaManager.Socket is null");
+            }
+            GD.Print($"MatchManager[PID:{processId}]: Socket not ready yet, will connect events when socket is available");
         }
     }
 
@@ -117,72 +163,72 @@ public partial class MatchManager : Node
     }
 
     /// <summary>
-    /// Set the current match (called when joining/creating a match)
+    /// Set the current match and initialize presence tracking
+    /// FIXED VERSION - properly tracks original match owner
     /// </summary>
     public void SetCurrentMatch(IMatch match)
     {
+        if (match == null)
+        {
+            GD.PrintErr("MatchManager: SetCurrentMatch called with null match!");
+            return;
+        }
+
+        var processId = OS.GetProcessId();
+        var localUserId = nakama?.Session?.UserId;
+
         currentMatch = match;
         GD.Print($"MatchManager: Set current match: {match.Id}");
 
-        // 🔥 CRITICAL: Ensure nakama reference is properly set
-        if (nakama == null)
+        // Clear and initialize presence tracking
+        ConnectSocketEventsIfAvailable();
+
+        var presenceCount = match.Presences.Count();
+        GD.Print($"MatchManager: SetCurrentMatch - Match has {presenceCount} presences");
+
+        // 🔥 CRITICAL FIX: Track original match owner on first match set
+        // For the match creator, they will be the only presence initially
+        // For joiners, the first presence in the list should be the original owner
+        if (string.IsNullOrEmpty(originalMatchOwnerId) && match.Presences.Any())
         {
-            nakama = NakamaManager.Instance;
-            if (nakama == null)
+            // If this is a new match with only 1 presence, the local player is the creator
+            if (presenceCount == 1 && match.Presences.First().UserId == localUserId)
             {
-                GD.PrintErr("MatchManager: Failed to get NakamaManager instance!");
-                return;
+                originalMatchOwnerId = localUserId;
+                GD.Print($"MatchManager[PID:{processId}]: 🏆 MATCH CREATOR - Set originalMatchOwnerId: {originalMatchOwnerId} (local player is owner)");
             }
-            GD.Print("MatchManager: Successfully got NakamaManager reference");
-        }
-
-        // 🔥 CRITICAL: Initialize players from current match with enhanced debugging
-        GD.Print($"MatchManager: SetCurrentMatch - Match has {match.Presences.Count()} presences");
-        Players.Clear();
-
-        foreach (var presence in match.Presences)
-        {
-            GD.Print($"MatchManager: Adding existing player from match: {presence.Username} (ID: {presence.UserId})");
-            AddOrUpdatePlayer(presence.UserId, presence.Username);
-        }
-
-        // 🔥 CRITICAL: Ensure local player (self) is in the collection
-        // Nakama doesn't send presence events for your own join, so add self explicitly
-        if (nakama?.Session != null)
-        {
-            var localUserId = nakama.Session.UserId;
-
-            // Use display name or fallback to user ID substring
-            var localUsername = !string.IsNullOrEmpty(nakama.Session.Username)
-                ? nakama.Session.Username
-                : $"Player_{localUserId.Substring(0, 8)}";
-
-            if (!Players.ContainsKey(localUserId))
-            {
-                GD.Print($"MatchManager: Adding local player (self) to collection: {localUsername} (ID: {localUserId})");
-                AddOrUpdatePlayer(localUserId, localUsername);
-            }
+            // If joining an existing match, the first presence should be the original owner
             else
             {
-                GD.Print($"MatchManager: Local player {localUsername} already in collection");
+                originalMatchOwnerId = match.Presences.First().UserId;
+                var isLocalOwner = (originalMatchOwnerId == localUserId);
+                GD.Print($"MatchManager[PID:{processId}]: 🏆 JOINING MATCH - Set originalMatchOwnerId: {originalMatchOwnerId} (local player is owner: {isLocalOwner})");
             }
         }
-
-        GD.Print($"MatchManager: After adding all players including self, Players.Count = {Players.Count}");
-
-        // Connect socket events if not already connected
-        if (nakama?.Socket != null)
+        else if (!string.IsNullOrEmpty(originalMatchOwnerId))
         {
-            nakama.Socket.ReceivedMatchState -= OnMatchStateReceived; // Prevent double connection
-            nakama.Socket.ReceivedMatchPresence -= OnMatchPresenceReceived;
-            nakama.Socket.ReceivedMatchState += OnMatchStateReceived;
-            nakama.Socket.ReceivedMatchPresence += OnMatchPresenceReceived;
-            GD.Print("MatchManager: Successfully connected to Nakama socket events");
+            var isLocalOwner = (originalMatchOwnerId == localUserId);
+            GD.Print($"MatchManager[PID:{processId}]: 🏆 Match owner already set: {originalMatchOwnerId} (local player is owner: {isLocalOwner})");
         }
-        else
-        {
-            GD.PrintErr("MatchManager: Nakama socket is null - cannot connect events!");
-        }
+
+        InitializePresenceTracking(match);
+
+        // Emit presence change signal
+        CallDeferred(MethodName.EmitPresenceChangedSignal);
+    }
+
+    /// <summary>
+    /// Delayed roster validation to catch and fix presence issues immediately
+    /// SIMPLIFIED VERSION - removes excessive validation that causes loops
+    /// </summary>
+    private void DelayedRosterValidation()
+    {
+        var processId = System.Diagnostics.Process.GetCurrentProcess().Id;
+        GD.Print($"MatchManager[PID:{processId}]: Basic roster validation - {Players.Count} players in match");
+
+        // SIMPLIFIED: Just log current state, no complex recovery
+        // Trust Nakama's presence events to keep state consistent
+        GD.Print($"MatchManager[PID:{processId}]: ✅ Roster validation simplified - trusting Nakama presence events");
     }
 
     #region Player Management
@@ -238,13 +284,7 @@ public partial class MatchManager : Node
         }
     }
 
-    /// <summary>
-    /// Emit PlayerLeftGame signal from main thread (fixes threading issues)
-    /// </summary>
-    private void EmitPlayerLeftSignal()
-    {
-        EmitSignal(SignalName.PlayerLeftGame);
-    }
+
 
     /// <summary>
     /// Check if all players are ready to start
@@ -260,9 +300,7 @@ public partial class MatchManager : Node
     /// </summary>
     public int GetPlayerCount()
     {
-        var count = Players.Count;
-        GD.Print($"MatchManager: GetPlayerCount() returning {count} from Players.Count");
-        return count;
+        return Players.Count;
     }
 
     /// <summary>
@@ -295,16 +333,39 @@ public partial class MatchManager : Node
     }
 
     /// <summary>
-    /// Check if local player is match owner (first to join)
+    /// Check if local player is match owner (original creator/first joiner)
+    /// FIXED VERSION - tracks original owner instead of using dynamic sorting
     /// </summary>
     public bool IsLocalPlayerMatchOwner()
     {
-        if (currentMatch?.Presences == null || currentMatch.Presences.Count() == 0)
-            return false;
+        var processId = OS.GetProcessId();
+        var localUserId = nakama?.Session?.UserId;
 
-        // The first player in the match is the owner
-        var firstPresence = currentMatch.Presences.First();
-        return firstPresence.UserId == nakama?.Session?.UserId;
+        if (string.IsNullOrEmpty(localUserId))
+        {
+            GD.PrintErr($"MatchManager[PID:{processId}]: IsLocalPlayerMatchOwner - Local user ID is null or empty!");
+            return false;
+        }
+
+        // 🔥 CRITICAL FIX: Use stored original match owner instead of dynamic sorting
+        // Dynamic sorting by user ID causes ownership to flip when players join
+        if (!string.IsNullOrEmpty(originalMatchOwnerId))
+        {
+            bool isOwner = originalMatchOwnerId == localUserId;
+            GD.Print($"MatchManager[PID:{processId}]: 🏆 Match ownership check - Original: {originalMatchOwnerId}, Local: {localUserId}, IsOwner: {isOwner}");
+            return isOwner;
+        }
+
+        // 🔥 EMERGENCY FALLBACK: If no original owner tracked, this is a critical error
+        // Multiple players should not be determining ownership simultaneously
+        GD.PrintErr($"MatchManager[PID:{processId}]: ⚠️ CRITICAL - No original match owner tracked! This indicates a synchronization issue.");
+        GD.PrintErr($"MatchManager[PID:{processId}]: Local user: {localUserId}, CurrentMatch: {currentMatch?.Id}, Presences: {currentMatch?.Presences?.Count()}");
+
+        // 🔥 CRITICAL FIX: Never assign ownership in fallback to prevent multiple match owners
+        // Instead, explicitly return false and log the issue
+        GD.PrintErr($"MatchManager[PID:{processId}]: Returning FALSE to prevent multiple match owners. Original owner must be set during match creation/join.");
+
+        return false;
     }
 
     #endregion
@@ -337,59 +398,50 @@ public partial class MatchManager : Node
     }
 
     /// <summary>
-    /// Start the game (only match owner can do this)
+    /// Start the game (match owner only)
+    /// SIMPLIFIED VERSION - removes excessive validation and delays
     /// </summary>
     public async Task StartGame()
     {
+        var processId = System.Diagnostics.Process.GetCurrentProcess().Id;
+        GD.Print($"MatchManager[PID:{processId}]: StartGame called");
+
         if (!IsLocalPlayerMatchOwner())
         {
             GD.PrintErr("MatchManager: Only match owner can start the game");
             return;
         }
 
-        // 🔥 REMOVED: Ready check for manual starts - match owner button press is explicit authorization
-        // When match owner clicks "Start Game", they're authorizing the game to begin regardless of other players' ready status
-        // This enables the lobby system where match owner has full control
+        GD.Print("MatchManager: Match owner starting game...");
 
-        GD.Print("MatchManager: Match owner starting game manually...");
-
-        // 🔥 NEW: Force all players to ready state when match owner starts game
+        // SIMPLIFIED: No complex validation or delays - trust current state
+        // Force-ready all connected players for manual start
+        var readyCount = 0;
         foreach (var player in Players.Values)
         {
             player.IsReady = true;
+            readyCount++;
         }
-        GD.Print($"MatchManager: Force-readied {Players.Count} players for manual start");
+        GD.Print($"MatchManager: Force-readied {readyCount} players for manual start");
 
-        // Prepare game start data
-        var playerList = Players.Values.ToList();
-        var gameSeed = new Random().Next(); // Generate seed once for all instances
-
-        var message = new GameStartMessage
-        {
-            Players = playerList.Select(p => new PlayerInfo
-            {
-                PlayerId = p.UserId,
-                PlayerName = p.Username
-            }).ToList(),
-            Seed = gameSeed, // Use the same seed for all instances
-            DealerId = playerList[0].UserId // First player is dealer
-        };
-
-        // 🔥 CRITICAL: Set GameSeed locally BEFORE sending message
-        // The match owner doesn't receive their own message back from Nakama
+        // Generate and set game seed locally for synchronization
+        var gameSeed = GenerateGameSeed();
         GameSeed = gameSeed;
-        GD.Print($"MatchManager: Match owner setting GameSeed locally: {GameSeed}");
+        GD.Print($"MatchManager: Match owner setting GameSeed: {gameSeed}");
 
-        await SendMatchMessage(MatchOpCode.GameStart, message);
+        // Send game start message to all players
+        try
+        {
+            await SendMatchMessage(MatchOpCode.GameStart, new GameStartMessage { Seed = gameSeed, DealerId = Players.Values.First().UserId });
 
-        // Update local state
-        IsGameInProgress = true;
-        CurrentTurnPlayerId = playerList[0].UserId;
-        CurrentTrick.Clear();
-        TricksPlayed = 0;
-
-        EmitSignal(SignalName.GameStarted);
-        GD.Print("MatchManager: Game started successfully");
+            // Emit game started signal for local handling
+            EmitSignal(SignalName.GameStarted);
+            GD.Print("MatchManager: Game started successfully");
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"MatchManager: Failed to start game: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -535,18 +587,96 @@ public partial class MatchManager : Node
     }
 
     /// <summary>
-    /// Send turn change from CardManager to all players (used for syncing turn progression)
+    /// Send egg throw sabotage to all players for synchronization
     /// </summary>
-    public async Task SendTurnChange(int currentPlayerTurn, int tricksPlayed)
+    public async Task SendEggThrow(int sourcePlayerId, int targetPlayerId, Vector2 targetPosition, float coverage)
     {
+        var eggThrow = new EggThrowMessage
+        {
+            SourcePlayerId = sourcePlayerId,
+            TargetPlayerId = targetPlayerId,
+            TargetPositionX = targetPosition.X,
+            TargetPositionY = targetPosition.Y,
+            Coverage = coverage,
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+        };
+
+        await SendMatchMessage(MatchOpCode.EggThrown, eggThrow);
+        GD.Print($"MatchManager: Sent egg throw - Player {sourcePlayerId} -> Player {targetPlayerId} at {targetPosition} with {coverage:P1} coverage");
+    }
+
+    /// <summary>
+    /// Send turn change from CardManager to all players (used for syncing turn progression)
+    /// FIXED VERSION - receives player ID instead of index and converts to Nakama user ID
+    /// </summary>
+    public async Task SendTurnChange(int currentPlayerId, int tricksPlayed)
+    {
+        // 🔥 CRITICAL FIX: Convert game player ID to Nakama user ID
+        string nextPlayerId = "";
+
+        // Get sorted player list (same as used in CardGameUI for deterministic ordering)
+        var sortedPlayerIds = Players.Keys.OrderBy(k => k).ToList();
+
+        // Convert game player ID back to Nakama user ID
+        // Game IDs are assigned as: playerIndex * 2 (0, 2, 4, etc.)
+        // So to get the playerIndex: currentPlayerId / 2
+        if (currentPlayerId < 100) // Human player (0, 2, 4, 6)
+        {
+            int playerIndex = currentPlayerId / 2;
+            if (playerIndex >= 0 && playerIndex < sortedPlayerIds.Count)
+            {
+                nextPlayerId = sortedPlayerIds[playerIndex];
+            }
+        }
+        else // AI player (100+) - use a placeholder since AI players don't have Nakama user IDs
+        {
+            nextPlayerId = $"AI_Player_{currentPlayerId}";
+        }
+
+        // If we couldn't determine the player ID, use the first player as fallback
+        if (string.IsNullOrEmpty(nextPlayerId) && Players.Count > 0)
+        {
+            nextPlayerId = sortedPlayerIds.FirstOrDefault() ?? "";
+        }
+
+        // 🔥 FIXED: Also need to calculate the turn index for CardManager synchronization
+        // Find the index of this player ID in the expected PlayerOrder
+        int turnIndex = -1;
+        var expectedPlayerOrder = new List<int>();
+
+        // Recreate the expected PlayerOrder (same logic as CardGameUI)
+        for (int i = 0; i < sortedPlayerIds.Count; i++)
+        {
+            expectedPlayerOrder.Add(i * 2); // 0, 2, 4, 6
+        }
+
+        // Add AI players (100+) to match CardGameUI logic
+        if (expectedPlayerOrder.Count < 4)
+        {
+            int nextAiId = 100;
+            while (expectedPlayerOrder.Count < 4)
+            {
+                expectedPlayerOrder.Add(nextAiId);
+                nextAiId++;
+            }
+        }
+
+        turnIndex = expectedPlayerOrder.IndexOf(currentPlayerId);
+        if (turnIndex == -1)
+        {
+            GD.PrintErr($"MatchManager: Could not find turn index for player ID {currentPlayerId}");
+            turnIndex = 0; // Fallback to first player
+        }
+
         var turnChange = new TurnChangeMessage
         {
-            CurrentPlayerTurn = currentPlayerTurn,
-            TricksPlayed = tricksPlayed
+            CurrentPlayerTurn = turnIndex, // 🔥 FIXED: Send the turn index for CardManager
+            TricksPlayed = tricksPlayed,
+            NextPlayerId = nextPlayerId // 🔥 FIXED: Now properly set
         };
 
         await SendMatchMessage(MatchOpCode.TurnChange, turnChange);
-        GD.Print($"MatchManager: Synced turn change - CurrentPlayerTurn: {currentPlayerTurn}, TricksPlayed: {tricksPlayed}");
+        GD.Print($"MatchManager: Synced turn change - CurrentPlayerId: {currentPlayerId}, TurnIndex: {turnIndex}, NextPlayerId: {nextPlayerId}, TricksPlayed: {tricksPlayed}");
     }
 
     /// <summary>
@@ -561,6 +691,40 @@ public partial class MatchManager : Node
 
         await SendMatchMessage(MatchOpCode.CardsDealt, cardsDealt);
         GD.Print($"MatchManager: Synced dealt cards to all players - {playerHands.Count} hands");
+    }
+
+    /// <summary>
+    /// Send trick completion from CardManager to all players (used for syncing trick completion)
+    /// </summary>
+    public async Task SendTrickCompleted(int winnerId, int newTrickLeader, int winnerScore)
+    {
+        var trickCompleted = new TrickCompletedMessage
+        {
+            WinnerId = winnerId,
+            NewTrickLeader = newTrickLeader,
+            WinnerScore = winnerScore
+        };
+
+        await SendMatchMessage(MatchOpCode.TrickCompleted, trickCompleted);
+        GD.Print($"MatchManager: Synced trick completion - Winner: {winnerId}, Leader: {newTrickLeader}, Score: {winnerScore}");
+    }
+
+    /// <summary>
+    /// Send timer update from CardManager to all players (used for syncing turn timer)
+    /// </summary>
+    public async Task SendTimerUpdate(float timeRemaining)
+    {
+        var timerUpdate = new TimerUpdateMessage
+        {
+            TimeRemaining = timeRemaining
+        };
+
+        await SendMatchMessage(MatchOpCode.TimerUpdate, timerUpdate);
+        // Only log occasional timer updates to avoid spam
+        if (timeRemaining % 5.0f < 0.1f) // Log every 5 seconds approximately
+        {
+            GD.Print($"MatchManager: Timer sync - {timeRemaining:F1}s remaining");
+        }
     }
 
     #endregion
@@ -600,9 +764,12 @@ public partial class MatchManager : Node
             }
 
             var json = JsonSerializer.Serialize(messageData);
-            GD.Print($"MatchManager: Sending message to match {currentMatch.Id}");
+            var processId = OS.GetProcessId();
+            var localUserId = nakama?.Session?.UserId ?? "unknown";
+            GD.Print($"MatchManager[PID:{processId}]: Sending message to match {currentMatch.Id}");
+            GD.Print($"MatchManager[PID:{processId}]: Local user ID: {localUserId}");
             await nakama.Socket.SendMatchStateAsync(currentMatch.Id, (long)opCode, json);
-            GD.Print($"MatchManager: Successfully sent message {opCode}");
+            GD.Print($"MatchManager[PID:{processId}]: Successfully sent message {opCode}");
         }
         catch (Exception ex)
         {
@@ -618,10 +785,21 @@ public partial class MatchManager : Node
     {
         try
         {
+            var processId = OS.GetProcessId();
             var opCode = (MatchOpCode)matchState.OpCode;
             var data = System.Text.Encoding.UTF8.GetString(matchState.State);
 
-            GD.Print($"MatchManager: Received message {opCode} from {matchState.UserPresence.Username}");
+            // Process the incoming message
+
+            // Only log timer updates if they're significant (reduce spam)
+            if (opCode == MatchOpCode.TimerUpdate)
+            {
+                GD.Print($"MatchManager[PID:{processId}]: Raw TimerUpdate received - OpCode: {matchState.OpCode}, State length: {matchState.State.Length}");
+            }
+            else
+            {
+                GD.Print($"MatchManager[PID:{processId}]: Received message {opCode} from {matchState.UserPresence.Username}");
+            }
 
             switch (opCode)
             {
@@ -649,6 +827,15 @@ public partial class MatchManager : Node
                 case MatchOpCode.CardsDealt:
                     HandleCardsDealtMessage(data);
                     break;
+                case MatchOpCode.TrickCompleted:
+                    HandleTrickCompletedMessage(data);
+                    break;
+                case MatchOpCode.TimerUpdate:
+                    HandleTimerUpdateMessage(data);
+                    break;
+                case MatchOpCode.EggThrown:
+                    HandleEggThrownMessage(data);
+                    break;
                 default:
                     GD.PrintErr($"MatchManager: Unknown message type: {opCode}");
                     break;
@@ -662,21 +849,75 @@ public partial class MatchManager : Node
 
     /// <summary>
     /// Handle match presence events (players joining/leaving)
+    /// FIXED VERSION - prevents duplicate presence additions and collection corruption
     /// </summary>
     private void OnMatchPresenceReceived(IMatchPresenceEvent presenceEvent)
     {
-        GD.Print($"MatchManager: Match presence event - Joins: {presenceEvent.Joins.Count()}, Leaves: {presenceEvent.Leaves.Count()}");
+        var processId = OS.GetProcessId();
+        var localUserId = nakama?.Session?.UserId;
 
-        // Handle players joining
-        foreach (var presence in presenceEvent.Joins)
+        GD.Print($"🔥 MatchManager[PID:{processId}]: OnMatchPresenceReceived - Joins: {presenceEvent.Joins.Count()}, Leaves: {presenceEvent.Leaves.Count()}");
+
+        // FIXED: Remove leaving players (no complex validation)
+        foreach (var leave in presenceEvent.Leaves)
         {
-            AddOrUpdatePlayer(presence.UserId, presence.Username);
+            // Remove from local tracking
+            var removed = localPresences.RemoveAll(p => p.UserId == leave.UserId);
+            Players.Remove(leave.UserId);
+
+            GD.Print($"MatchManager[PID:{processId}]: Player LEFT: {leave.Username} ({leave.UserId}) - removed {removed} entries");
         }
 
-        // Handle players leaving  
-        foreach (var presence in presenceEvent.Leaves)
+        // FIXED: Add joining players (with duplicate prevention)
+        foreach (var join in presenceEvent.Joins)
         {
-            RemovePlayer(presence.UserId);
+            // 🔥 CRITICAL FIX: Check if player already exists before adding
+            if (Players.ContainsKey(join.UserId))
+            {
+                GD.Print($"MatchManager[PID:{processId}]: Player {join.Username} already in collection - skipping duplicate add");
+                continue;
+            }
+
+            // Add to local presence tracking
+            localPresences.Add(join);
+
+            // Create new MatchPlayerData for the presence
+            var playerData = new MatchPlayerData
+            {
+                UserId = join.UserId,
+                Username = join.Username,
+                IsReady = false
+            };
+
+            Players[join.UserId] = playerData;
+            GD.Print($"MatchManager[PID:{processId}]: Player JOINED: {join.Username} ({join.UserId})");
+        }
+
+        GD.Print($"MatchManager[PID:{processId}]: Presence update complete - {localPresences.Count} players, {Players.Count} in collection");
+
+        // Emit appropriate signals using CallDeferred for thread safety
+        if (presenceEvent.Joins.Any())
+        {
+            foreach (var join in presenceEvent.Joins)
+            {
+                // Only emit if this was a new addition (not a duplicate)
+                if (Players.ContainsKey(join.UserId))
+                {
+                    // 🔥 CRITICAL FIX: Use CallDeferred for thread safety - Nakama events come from background thread
+                    CallDeferred(MethodName.EmitPlayerJoinedSignal, join.UserId);
+                }
+            }
+            // 🔥 CRITICAL FIX: Use CallDeferred for thread safety
+            CallDeferred(MethodName.EmitPlayerJoinedSignal);
+        }
+
+        if (presenceEvent.Leaves.Any())
+        {
+            foreach (var leave in presenceEvent.Leaves)
+            {
+                // 🔥 CRITICAL FIX: Use CallDeferred for thread safety
+                CallDeferred(MethodName.EmitPlayerLeftSignal, leave.UserId);
+            }
         }
     }
 
@@ -801,8 +1042,8 @@ public partial class MatchManager : Node
             // Emit new turn change signal for CardManager synchronization
             CallDeferred(MethodName.EmitTurnChangeReceivedSignal, message.CurrentPlayerTurn, message.TricksPlayed);
 
-            // Emit old signal for backwards compatibility
-            EmitSignal(SignalName.TurnChanged, CurrentTurnPlayerId);
+            // 🔥 FIXED: Use CallDeferred for thread safety (was causing threading error)
+            CallDeferred(MethodName.EmitTurnChangedSignal, CurrentTurnPlayerId);
             GD.Print($"MatchManager: Turn changed to {message.NextPlayerId}, PlayerTurn: {message.CurrentPlayerTurn}, Tricks: {message.TricksPlayed}");
         }
         catch (Exception ex)
@@ -818,6 +1059,52 @@ public partial class MatchManager : Node
     {
         EmitSignal(SignalName.TurnChangeReceived, currentPlayerTurn, tricksPlayed);
         GD.Print($"MatchManager: TurnChangeReceived signal emitted - PlayerTurn: {currentPlayerTurn}, Tricks: {tricksPlayed}");
+    }
+
+    /// <summary>
+    /// Emit TurnChanged signal from main thread (fixes threading issues)
+    /// </summary>
+    private void EmitTurnChangedSignal(string currentPlayerId)
+    {
+        EmitSignal(SignalName.TurnChanged, currentPlayerId);
+        GD.Print($"MatchManager: TurnChanged signal emitted - CurrentPlayerId: {currentPlayerId}");
+    }
+
+    /// <summary>
+    /// Emit PlayerJoined signal from main thread (fixes threading issues)
+    /// FIXED VERSION - properly handles both with and without player ID
+    /// </summary>
+    private void EmitPlayerJoinedSignal(string playerId = "")
+    {
+        if (string.IsNullOrEmpty(playerId))
+        {
+            EmitSignal(SignalName.PlayerJoinedGame);
+        }
+        else
+        {
+            EmitSignal(SignalName.PlayerJoinedGame, playerId);
+        }
+        GD.Print($"MatchManager: PlayerJoinedGame signal emitted for player: {playerId}");
+    }
+
+    /// <summary>
+    /// Emit PlayerLeft signal from main thread (fixes threading issues)
+    /// FIXED VERSION - properly passes player ID to signal
+    /// </summary>
+    private void EmitPlayerLeftSignal(string playerId)
+    {
+        EmitSignal(SignalName.PlayerLeftGame, playerId);
+        GD.Print($"MatchManager: PlayerLeftGame signal emitted for player: {playerId}");
+    }
+
+    /// <summary>
+    /// Emit PresenceChanged signal from main thread (fixes threading issues)
+    /// </summary>
+    private void EmitPresenceChangedSignal()
+    {
+        // 🔥 FIXED: Use PlayerJoinedGame as a general presence change notification
+        EmitSignal(SignalName.PlayerJoinedGame);
+        GD.Print($"MatchManager: PlayerJoinedGame signal emitted as presence change - current presences: {localPresences.Count}");
     }
 
     private void HandleGameEndMessage(string data)
@@ -893,14 +1180,92 @@ public partial class MatchManager : Node
             // Store the dealt cards in the property for CardManager to access
             LastDealtCards = message.PlayerHands;
 
-            // Emit simple signal to notify CardManager that cards were dealt
-            EmitSignal(SignalName.CardsDealt);
-            GD.Print($"MatchManager: CardsDealt signal emitted - CardManager can access via LastDealtCards property");
+            // 🔥 FIXED: Use CallDeferred for thread safety
+            CallDeferred(MethodName.EmitCardsDealtSignalSafe);
+            GD.Print($"MatchManager: CardsDealt signal scheduled via CallDeferred");
         }
         catch (Exception ex)
         {
             GD.PrintErr($"MatchManager: Error handling dealt cards message: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Emit CardsDealt signal from main thread (fixes threading issues)
+    /// </summary>
+    private void EmitCardsDealtSignalSafe()
+    {
+        GD.Print($"🔄 MatchManager: EmitCardsDealtSignalSafe called - about to emit CardsDealt signal");
+        GD.Print($"MatchManager: LastDealtCards contains {LastDealtCards.Count} player hands");
+
+        // Log the actual dealt cards for debugging
+        foreach (var kvp in LastDealtCards)
+        {
+            GD.Print($"MatchManager: Player {kvp.Key} has {kvp.Value.Count} cards");
+        }
+
+        EmitSignal(SignalName.CardsDealt);
+        GD.Print($"MatchManager: CardsDealt signal emitted safely from main thread - CardManager can access via LastDealtCards property");
+
+        // Signal emitted - debug information removed to reduce spam
+    }
+
+    private void HandleTrickCompletedMessage(string data)
+    {
+        try
+        {
+            var message = JsonSerializer.Deserialize<TrickCompletedMessage>(data);
+
+            // 🔥 CRITICAL FIX: Use CallDeferred for thread safety - Nakama events come from background thread
+            CallDeferred(MethodName.EmitTrickCompletedReceivedSignal, message.WinnerId, message.NewTrickLeader, message.WinnerScore);
+            GD.Print($"MatchManager: Trick completed - Winner: {message.WinnerId}, Leader: {message.NewTrickLeader}, Score: {message.WinnerScore}");
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"MatchManager: Error handling trick completed message: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Emit TrickCompletedReceived signal from main thread (fixes threading issues)
+    /// </summary>
+    private void EmitTrickCompletedReceivedSignal(int winnerId, int newTrickLeader, int winnerScore)
+    {
+        EmitSignal(SignalName.TrickCompletedReceived, winnerId, newTrickLeader, winnerScore);
+        GD.Print($"MatchManager: TrickCompletedReceived signal emitted safely from main thread - Winner: {winnerId}, Leader: {newTrickLeader}, Score: {winnerScore}");
+    }
+
+    /// <summary>
+    /// Handle timer update message from match owner
+    /// </summary>
+    private void HandleTimerUpdateMessage(string data)
+    {
+        try
+        {
+            var message = JsonSerializer.Deserialize<TimerUpdateMessage>(data);
+
+            // Only log significant timer updates (every 5 seconds) to avoid spam
+            if (message.TimeRemaining % 5.0f < 0.2f)
+            {
+                GD.Print($"MatchManager: Timer update received - {message.TimeRemaining:F1}s remaining");
+            }
+
+            // 🔥 CRITICAL FIX: Use CallDeferred for thread safety - Nakama events come from background thread
+            CallDeferred(MethodName.EmitTimerUpdateReceivedSignal, message.TimeRemaining);
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"MatchManager: Error handling timer update message: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Emit TimerUpdateReceived signal from main thread (fixes threading issues)
+    /// </summary>
+    private void EmitTimerUpdateReceivedSignal(float timeRemaining)
+    {
+        EmitSignal(SignalName.TimerUpdateReceived, timeRemaining);
+        // Signal emitted - no logging to reduce spam
     }
 
     #endregion
@@ -922,7 +1287,6 @@ public partial class MatchManager : Node
     /// </summary>
     private class GameStartMessage
     {
-        public List<PlayerInfo> Players { get; set; }
         public int Seed { get; set; }
         public string DealerId { get; set; }
     }
@@ -983,7 +1347,168 @@ public partial class MatchManager : Node
         public Dictionary<int, List<string>> PlayerHands { get; set; }
     }
 
+    /// <summary>
+    /// Trick completion message for synchronizing trick completion across all players
+    /// </summary>
+    private class TrickCompletedMessage
+    {
+        public int WinnerId { get; set; }
+        public int NewTrickLeader { get; set; }
+        public int WinnerScore { get; set; }
+    }
+
+    /// <summary>
+    /// Timer update message for synchronizing turn timer across all players
+    /// </summary>
+    private class TimerUpdateMessage
+    {
+        public float TimeRemaining { get; set; }
+    }
+
+    /// <summary>
+    /// Egg throw message for synchronizing sabotage actions across all players
+    /// </summary>
+    private class EggThrowMessage
+    {
+        public int SourcePlayerId { get; set; }
+        public int TargetPlayerId { get; set; }
+        public float TargetPositionX { get; set; }
+        public float TargetPositionY { get; set; }
+        public float Coverage { get; set; }
+        public long Timestamp { get; set; }
+    }
+
     #endregion
+
+    /// <summary>
+    /// REMOVED: Complex roster validation that caused infinite recovery loops
+    /// The system now trusts Nakama's presence events for consistency
+    /// </summary>
+    private bool ValidateAndRecoverPlayerRoster()
+    {
+        var processId = System.Diagnostics.Process.GetCurrentProcess().Id;
+        GD.Print($"MatchManager[PID:{processId}]: ✅ Roster validation simplified - {Players.Count} players, trusting Nakama presence events");
+
+        // SIMPLIFIED: Always return true - no complex validation
+        return true;
+    }
+
+    /// <summary>
+    /// SIMPLIFIED: Basic presence sync without complex recovery logic
+    /// </summary>
+    public void ForceCompletePresenceSync()
+    {
+        var processId = System.Diagnostics.Process.GetCurrentProcess().Id;
+        GD.Print($"MatchManager[PID:{processId}]: Basic presence sync - {localPresences.Count} presences, {Players.Count} players");
+
+        if (currentMatch == null || nakama?.Session == null)
+        {
+            GD.PrintErr($"MatchManager[PID:{processId}]: Cannot sync presences - no active match or session");
+            return;
+        }
+
+        // SIMPLIFIED: Just ensure basic consistency without complex recovery
+        var localUserId = nakama.Session.UserId;
+        if (!Players.ContainsKey(localUserId))
+        {
+            // Add self if missing (simple case)
+            var localUsername = nakama.Session.Username ?? "LocalPlayer";
+            AddOrUpdatePlayer(localUserId, localUsername);
+            GD.Print($"MatchManager[PID:{processId}]: Added missing local player: {localUsername}");
+        }
+
+        GD.Print($"MatchManager[PID:{processId}]: ✅ Basic presence sync complete - {Players.Count} players");
+    }
+
+    /// <summary>
+    /// Initialize presence tracking from match data
+    /// FIXED VERSION - ensures local player is always in localPresences for consistent match ownership
+    /// </summary>
+    private void InitializePresenceTracking(IMatch match)
+    {
+        var processId = System.Diagnostics.Process.GetCurrentProcess().Id;
+        GD.Print($"MatchManager[PID:{processId}]: InitializePresenceTracking called");
+
+        // Get NakamaManager reference
+        nakama = NakamaManager.Instance;
+        if (nakama == null)
+        {
+            GD.PrintErr("MatchManager: Failed to get NakamaManager instance!");
+            return;
+        }
+
+        GD.Print("MatchManager: Successfully got NakamaManager reference");
+
+        // Initialize from match data
+        if (match.Presences != null)
+        {
+            localPresences.Clear(); // Start fresh
+            localPresences.AddRange(match.Presences);
+            GD.Print($"MatchManager: Initialized with {localPresences.Count} presences from match");
+
+            // Add players from presences to Players collection
+            foreach (var presence in localPresences)
+            {
+                AddOrUpdatePlayer(presence.UserId, presence.Username);
+                GD.Print($"MatchManager: Added player from presence: {presence.Username} ({presence.UserId})");
+            }
+        }
+
+        // CRITICAL FIX: Ensure local player is in BOTH Players collection AND localPresences
+        // Nakama doesn't send self-presence events, so we must add ourselves explicitly
+        var localUserId = nakama?.Session?.UserId;
+        var localUsername = nakama?.Session?.Username ?? "LocalPlayer";
+
+        if (!string.IsNullOrEmpty(localUserId))
+        {
+            // Add to Players collection if missing
+            if (!Players.ContainsKey(localUserId))
+            {
+                AddOrUpdatePlayer(localUserId, localUsername);
+                GD.Print($"MatchManager: Added local player to Players: {localUsername} (ID: {localUserId})");
+            }
+
+            // CRITICAL: Add to localPresences if missing (this was the bug!)
+            if (!localPresences.Any(p => p.UserId == localUserId))
+            {
+                // Create a mock presence for local player to ensure consistent presence tracking
+                var localPresence = new MockUserPresence
+                {
+                    UserId = localUserId,
+                    Username = localUsername,
+                    Status = "",
+                    SessionId = $"local_session_{localUserId}"
+                };
+                localPresences.Add(localPresence);
+                GD.Print($"MatchManager: Added local player to localPresences: {localUsername} (ID: {localUserId})");
+            }
+        }
+
+        GD.Print($"MatchManager: ✅ Initialization complete - {Players.Count} players in collection, {localPresences.Count} in presence list");
+    }
+
+    /// <summary>
+    /// Generate a deterministic game seed for synchronization
+    /// </summary>
+    private int GenerateGameSeed()
+    {
+        // Use current timestamp for seed generation to ensure uniqueness
+        var seed = (int)(DateTime.UtcNow.Ticks % int.MaxValue);
+        GD.Print($"MatchManager: Generated game seed: {seed}");
+        return seed;
+    }
+
+    /// <summary>
+    /// Mock presence implementation for recovery scenarios
+    /// </summary>
+    private class MockUserPresence : IUserPresence
+    {
+        public string UserId { get; set; }
+        public string Username { get; set; }
+        public string Status { get; set; }
+        public string SessionId { get; set; }
+        public bool Persistence { get; set; } = false; // Required by IUserPresence interface
+    }
 }
 
 /// <summary>

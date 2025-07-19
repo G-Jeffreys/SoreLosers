@@ -228,7 +228,7 @@ public partial class MainMenuUI : Control
 
             // Trim whitespace from room code - NakamaManager will handle conversion
             var cleanRoomCode = roomCode.Trim();
-            var match = await nakama.JoinMatchAsync(cleanRoomCode);
+            var match = await nakama.JoinMatch(cleanRoomCode);
 
             if (match != null)
             {
@@ -285,7 +285,7 @@ public partial class MainMenuUI : Control
                 var matchId = nakama.GetMatchIdFromRoomCode(roomCode);
                 if (!string.IsNullOrEmpty(matchId))
                 {
-                    var match = await nakama.JoinMatchAsync(matchId); // Join our own match to get IMatch object
+                    var match = await nakama.JoinMatch(matchId); // Join our own match to get IMatch object
 
                     if (match != null)
                     {
@@ -357,6 +357,7 @@ public partial class MainMenuUI : Control
 
     /// <summary>
     /// Show room code with extended time for copying, then transition to game scene
+    /// FIXED VERSION - prevents ObjectDisposedException during async operations
     /// </summary>
     private async void ShowBriefRoomCodeAndTransition(string roomCode)
     {
@@ -373,13 +374,56 @@ public partial class MainMenuUI : Control
 
         ShowDialog(dialog);
 
-        // Wait 8 seconds (longer for easy copying), then transition to game scene
-        await Task.Delay(8000);
+        // 🔥 CRITICAL FIX: Add disposal checks and early exit handling
+        bool dialogClosed = false;
+
+        // Connect to dialog confirmed signal to detect early closure
+        dialog.Confirmed += () =>
+        {
+            dialogClosed = true;
+            GD.Print("MainMenuUI: User clicked OK - starting game immediately");
+        };
+
+        // Wait 8 seconds with disposal checks
+        for (int i = 0; i < 80; i++) // 80 * 100ms = 8000ms
+        {
+            // 🔥 CRITICAL: Check if this object has been disposed/freed
+            if (!IsInstanceValid(this) || IsQueuedForDeletion())
+            {
+                GD.Print("MainMenuUI: Object disposed during room code display - cancelling transition");
+                return;
+            }
+
+            // Check if dialog was closed early
+            if (dialogClosed)
+            {
+                break;
+            }
+
+            await Task.Delay(100);
+        }
+
+        // 🔥 CRITICAL: Final disposal check before accessing GetTree()
+        if (!IsInstanceValid(this) || IsQueuedForDeletion())
+        {
+            GD.Print("MainMenuUI: Object disposed after delay - cancelling scene transition");
+            return;
+        }
 
         // Close dialog and transition
         CloseActiveDialog();
         GD.Print($"MainMenuUI: Transitioning to game scene after showing room code: {roomCode}");
-        GetTree().CallDeferred("change_scene_to_file", "res://scenes/CardGame.tscn");
+
+        // 🔥 CRITICAL: Check tree availability before calling scene change
+        var tree = GetTree();
+        if (tree != null && IsInstanceValid(tree))
+        {
+            tree.CallDeferred("change_scene_to_file", "res://scenes/CardGame.tscn");
+        }
+        else
+        {
+            GD.PrintErr("MainMenuUI: Cannot transition scene - tree not available");
+        }
     }
 
     /// <summary>
@@ -488,15 +532,29 @@ public partial class MainMenuUI : Control
 
     private async void DelayedCreateMatch()
     {
-        // Wait for authentication to complete
+        // Wait for authentication to complete with disposal checks
         for (int i = 0; i < 50; i++) // Wait up to 5 seconds
         {
+            // 🔥 CRITICAL: Check if this object has been disposed/freed
+            if (!IsInstanceValid(this) || IsQueuedForDeletion())
+            {
+                GD.Print("MainMenuUI: Object disposed during DelayedCreateMatch - cancelling");
+                return;
+            }
+
             if (nakama?.IsAuthenticated == true)
             {
                 CreateMatch();
                 return;
             }
             await Task.Delay(100);
+        }
+
+        // 🔥 CRITICAL: Final disposal check before showing error
+        if (!IsInstanceValid(this) || IsQueuedForDeletion())
+        {
+            GD.Print("MainMenuUI: Object disposed during DelayedCreateMatch timeout - cancelling");
+            return;
         }
 
         ShowErrorDialog("Connection Timeout", "Could not connect to servers in time. Please try again.");
@@ -542,18 +600,33 @@ public partial class MainMenuUI : Control
 
     /// <summary>
     /// Show join dialog after authentication completes
+    /// FIXED VERSION - prevents ObjectDisposedException during async operations
     /// </summary>
     private async void DelayedShowJoinDialog()
     {
-        // Wait for authentication to complete
+        // Wait for authentication to complete with disposal checks
         for (int i = 0; i < 50; i++) // Wait up to 5 seconds
         {
+            // 🔥 CRITICAL: Check if this object has been disposed/freed
+            if (!IsInstanceValid(this) || IsQueuedForDeletion())
+            {
+                GD.Print("MainMenuUI: Object disposed during DelayedShowJoinDialog - cancelling");
+                return;
+            }
+
             if (nakama?.IsAuthenticated == true)
             {
                 ShowJoinDialog();
                 return;
             }
             await Task.Delay(100);
+        }
+
+        // 🔥 CRITICAL: Final disposal check before showing error
+        if (!IsInstanceValid(this) || IsQueuedForDeletion())
+        {
+            GD.Print("MainMenuUI: Object disposed during DelayedShowJoinDialog timeout - cancelling");
+            return;
         }
 
         // If authentication failed, show error and still allow join attempt

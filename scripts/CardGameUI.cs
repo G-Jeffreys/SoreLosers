@@ -41,6 +41,37 @@ public partial class CardGameUI : Control
     private List<Card> currentPlayerCards = new();
     private List<TextureButton> cardButtons = new(); // CHANGED: Now using TextureButton for images
 
+    // 🔥 FIXED: Track local player ID independently to fix card play synchronization
+    private int _actualLocalPlayerId = 0; // Backing field
+    private int actualLocalPlayerId
+    {
+        get => _actualLocalPlayerId;
+        set
+        {
+            if (_actualLocalPlayerId != value)
+            {
+                var processId = System.Diagnostics.Process.GetCurrentProcess().Id;
+                GD.Print($"🔍 CardGameUI[PID:{processId}]: actualLocalPlayerId changed from {_actualLocalPlayerId} to {value}");
+
+                // Print stack trace to see who's changing it
+                try
+                {
+                    throw new System.Exception("Stack trace");
+                }
+                catch (System.Exception ex)
+                {
+                    var stackLines = ex.StackTrace.Split('\n');
+                    for (int i = 1; i < Math.Min(4, stackLines.Length); i++) // Show first 3 stack frames
+                    {
+                        GD.Print($"🔍   Stack {i}: {stackLines[i].Trim()}");
+                    }
+                }
+
+                _actualLocalPlayerId = value;
+            }
+        }
+    }
+
     // UI for showing other players' info (now using scene node)
     private VBoxContainer playersInfoContainer;
     private List<Label> playerInfoLabels = new();
@@ -61,6 +92,18 @@ public partial class CardGameUI : Control
     private List<string> chatHistory = new();
     private const int MaxChatHistoryLines = 5;
 
+    // 🎨 NEW: Chat font scaling configuration
+    private const int BaseChatFontSize = 12;        // Base font size for normal chat
+    private const int MinChatFontSize = 8;          // Minimum font size (for readability)
+    private const int MaxChatFontSize = 32;         // Maximum font size (to prevent overflow)
+    private const bool EnableFontScaling = true;    // Toggle to enable/disable font scaling
+
+    // 🔥 NEW: Chat shrinking timer system (moved from UIManager to fix disconnected systems)
+    private Timer chatShrinkTimer;
+    private const float ChatShrinkDelay = 30.0f;    // 30 seconds before auto-shrink (PRD requirement)
+    private bool chatIsGrown = false;               // Track if chat is currently grown
+    private float currentChatMultiplier = 1.0f;     // Current chat size multiplier
+
     // Card graphics system - NEW
     private Dictionary<string, Texture2D> cardTextures = new();
     private Texture2D cardBackTexture;
@@ -80,6 +123,9 @@ public partial class CardGameUI : Control
         // 🔥 CRITICAL: Reset game start flag for fresh state
         gameStartProcessed = false;
         gameStartRetryCount = 0;
+
+        // 🔥 FIXED: Initialize actualLocalPlayerId with default value for non-Nakama games
+        actualLocalPlayerId = 0; // Will be updated properly during Nakama game setup
 
         // Add to card_game_ui group for NetworkManager chat forwarding
         AddToGroup("card_game_ui");
@@ -131,7 +177,7 @@ public partial class CardGameUI : Control
 
             // Style chat panel to be semi-transparent and visually "in front" but clickable behind
             var chatStyleBox = new StyleBoxFlat();
-            chatStyleBox.BgColor = new Color(0.1f, 0.1f, 0.1f, 0.8f); // Dark with some transparency
+            chatStyleBox.BgColor = new Color(0.1f, 0.1f, 0.1f, 0.97f); // Dark with some transparency
             chatStyleBox.BorderColor = new Color(1.0f, 1.0f, 1.0f, 0.5f); // Semi-transparent white border
             chatStyleBox.BorderWidthLeft = 2;
             chatStyleBox.BorderWidthTop = 2;
@@ -169,6 +215,9 @@ public partial class CardGameUI : Control
 
         // Initialize chat
         UpdateChatDisplay();
+
+        // 🔥 NEW: Initialize chat shrinking timer system
+        InitializeChatTimer();
 
         // Connect to game systems
         ConnectToGameSystems();
@@ -534,6 +583,9 @@ public partial class CardGameUI : Control
 
         GD.Print($"Chat message submitted: {text}");
 
+        // 🔥 NEW: Reset chat shrink timer on activity
+        OnChatActivity();
+
         // 🔥 CRITICAL: Use Nakama-based chat system instead of traditional RPC
         var matchManager = MatchManager.Instance;
         if (matchManager != null && matchManager.HasActiveMatch)
@@ -804,43 +856,73 @@ public partial class CardGameUI : Control
     }
 
     /// <summary>
-    /// Update the player's hand display with actual cards from CardManager
+    /// Update the player's hand display with current cards
     /// </summary>
-    private async void UpdatePlayerHand()
+    private async Task UpdatePlayerHand()
     {
+        // 🔥 FIXED: Add disposal and null checks to prevent ObjectDisposedException
+        if (!IsInstanceValid(this) || IsQueuedForDeletion())
+        {
+            GD.Print("CardGameUI: UpdatePlayerHand called on disposed/invalid instance - skipping");
+            return;
+        }
+
+        var cardContainer = GetNode<Control>("CardTableView/GameArea/PlayerHand");
+        if (cardContainer == null || !IsInstanceValid(cardContainer) || cardContainer.IsQueuedForDeletion())
+        {
+            GD.Print("CardGameUI: CardContainer not found or disposed - skipping hand update");
+            return;
+        }
+
+        if (cardManager == null || !cardManager.GameInProgress)
+        {
+            GD.Print("CardGameUI: CardManager not available or game not in progress - skipping hand update");
+            return;
+        }
+
         GD.Print("CardGameUI: UpdatePlayerHand called");
-
-        if (playerHand == null)
-        {
-            GD.PrintErr("DEBUG: PlayerHand container is NULL!");
-            return;
-        }
-
-        if (cardManager == null)
-        {
-            GD.Print("CardGameUI: CardManager is null, cannot update hand");
-            return;
-        }
-
-        if (gameManager == null)
-        {
-            GD.Print("CardGameUI: GameManager is null, cannot update hand");
-            return;
-        }
-
-        GD.Print($"CardGameUI: CardManager.GameInProgress: {cardManager.GameInProgress}");
 
         // Clear existing cards
         ClearPlayerHand();
 
-        // Get current player ID (for now, assume local player is ID 0)
-        int localPlayerId = gameManager.LocalPlayer?.PlayerId ?? 0;
-        GD.Print($"CardGameUI: Local player ID: {localPlayerId}");
+        // 🔥 FIXED: Use actualLocalPlayerId instead of potentially incorrect gameManager.LocalPlayer.PlayerId
+        int localPlayerId = actualLocalPlayerId;
+        GD.Print($"CardGameUI: Local player ID: {localPlayerId} (actualLocalPlayerId)");
+
+        // 🔥 DEBUG: Also log gameManager.LocalPlayer.PlayerId for comparison
+        if (gameManager?.LocalPlayer != null)
+        {
+            GD.Print($"CardGameUI: gameManager.LocalPlayer.PlayerId: {gameManager.LocalPlayer.PlayerId} (for comparison)");
+        }
 
         // Get player's actual cards from CardManager
-        currentPlayerCards = cardManager.GetPlayerHand(localPlayerId);
+        var previousCardCount = currentPlayerCards.Count;
+        var freshCardsFromManager = cardManager.GetPlayerHand(localPlayerId);
 
-        GD.Print($"CardGameUI: Player {localPlayerId} has {currentPlayerCards.Count} cards");
+        // 🔥 CRITICAL DEBUG: Log what CardManager returns vs what UI had
+        GD.Print($"CardGameUI: 🃏 CardManager.GetPlayerHand({localPlayerId}) returned {freshCardsFromManager.Count} cards");
+        GD.Print($"CardGameUI: 🃏 UI currentPlayerCards had {previousCardCount} cards before update");
+
+        // 🔥 CRITICAL DEBUG: Compare actual card contents to detect desync
+        if (previousCardCount > 0 && freshCardsFromManager.Count != previousCardCount)
+        {
+            var oldCards = string.Join(", ", currentPlayerCards.Select(c => c.ToString()));
+            var newCards = string.Join(", ", freshCardsFromManager.Select(c => c.ToString()));
+            GD.Print($"CardGameUI: 🃏 CARD SYNC MISMATCH DETECTED!");
+            GD.Print($"CardGameUI: 🃏 Old UI cards ({previousCardCount}): [{oldCards}]");
+            GD.Print($"CardGameUI: 🃏 New CardManager cards ({freshCardsFromManager.Count}): [{newCards}]");
+        }
+
+        currentPlayerCards = freshCardsFromManager;
+
+        GD.Print($"CardGameUI: 🃏 UpdatePlayerHand - Player {localPlayerId}: {previousCardCount} -> {currentPlayerCards.Count} cards");
+
+        // 🔥 DEBUG: Log actual cards in hand for auto-forfeit tracking
+        if (currentPlayerCards.Count > 0 && currentPlayerCards.Count <= 15) // Increased limit to see more hands
+        {
+            var cardNames = string.Join(", ", currentPlayerCards.Select(c => c.ToString()));
+            GD.Print($"CardGameUI: 🃏 Current cards in hand: [{cardNames}]");
+        }
 
         if (currentPlayerCards.Count == 0)
         {
@@ -849,20 +931,20 @@ public partial class CardGameUI : Control
         }
 
         // FIXED: Use Control container with manual positioning to avoid container constraints
-        var cardContainer = new Control();
-        cardContainer.Name = "ManualCardContainer";
+        var manualCardContainer = new Control();
+        manualCardContainer.Name = "ManualCardContainer";
         // Set to fill the parent container - FIXED for Godot 4.4 API
-        cardContainer.AnchorLeft = 0;
-        cardContainer.AnchorTop = 0;
-        cardContainer.AnchorRight = 1;
-        cardContainer.AnchorBottom = 1;
-        cardContainer.OffsetLeft = 0;
-        cardContainer.OffsetTop = 0;
-        cardContainer.OffsetRight = 0;
-        cardContainer.OffsetBottom = 0;
+        manualCardContainer.AnchorLeft = 0;
+        manualCardContainer.AnchorTop = 0;
+        manualCardContainer.AnchorRight = 1;
+        manualCardContainer.AnchorBottom = 1;
+        manualCardContainer.OffsetLeft = 0;
+        manualCardContainer.OffsetTop = 0;
+        manualCardContainer.OffsetRight = 0;
+        manualCardContainer.OffsetBottom = 0;
         // CRITICAL: Don't clip contents - allows cards to be larger than container bounds
-        cardContainer.ClipContents = false;
-        playerHand.AddChild(cardContainer);
+        manualCardContainer.ClipContents = false;
+        playerHand.AddChild(manualCardContainer);
 
         // Wait one frame for container to get proper size
         await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
@@ -891,7 +973,7 @@ public partial class CardGameUI : Control
                 // DIRECT POSITION CONTROL - bypassing all container constraints
                 Vector2 cardPos = new Vector2(startX + i * overlapSpacing, cardY);
                 cardButton.Position = cardPos;
-                cardContainer.AddChild(cardButton);
+                manualCardContainer.AddChild(cardButton);
 
                 // FORCE SIZE AFTER ADDING TO SCENE TREE - prevents container from overriding size
                 cardButton.Size = cardSize;
@@ -932,7 +1014,7 @@ public partial class CardGameUI : Control
                 }
 
                 cardButton.Position = cardPos;
-                cardContainer.AddChild(cardButton);
+                manualCardContainer.AddChild(cardButton);
 
                 // FORCE SIZE AFTER ADDING TO SCENE TREE - prevents container from overriding size
                 cardButton.Size = cardSize;
@@ -1215,7 +1297,10 @@ public partial class CardGameUI : Control
                 // Try to play the card through CardManager
                 if (cardManager != null && gameManager != null)
                 {
-                    int localPlayerId = gameManager.LocalPlayer?.PlayerId ?? 0;
+                    // 🔥 FIXED: Use actualLocalPlayerId instead of potentially stale gameManager.LocalPlayer.PlayerId
+                    int localPlayerId = actualLocalPlayerId;
+                    GD.Print($"CardGameUI: Using actualLocalPlayerId: {localPlayerId} for card play");
+
                     bool success = cardManager.PlayCard(localPlayerId, card);
 
                     if (success)
@@ -1244,8 +1329,9 @@ public partial class CardGameUI : Control
     {
         GD.Print($"CardGameUI: Turn started for player {playerId}");
 
+        // 🔥 FIXED: Use actualLocalPlayerId for accurate turn detection
         // Update UI to show whose turn it is
-        if (gameManager != null && gameManager.LocalPlayer?.PlayerId == playerId)
+        if (playerId == actualLocalPlayerId)
         {
             // It's our turn - enable card interactions
             SetCardsInteractable(true);
@@ -1278,10 +1364,47 @@ public partial class CardGameUI : Control
     {
         GD.Print($"CardGameUI: Player {playerId} played {cardString}");
 
+        // 🔥 CRITICAL DEBUG: Track card removal for auto-forfeit
+        var isLocalPlayer = (playerId == actualLocalPlayerId);
+        GD.Print($"CardGameUI: OnCardPlayed - playerId: {playerId}, actualLocalPlayerId: {actualLocalPlayerId}, isLocalPlayer: {isLocalPlayer}");
+
         // If it was our card, remove it from hand
-        if (gameManager != null && gameManager.LocalPlayer?.PlayerId == playerId)
+        if (isLocalPlayer)
         {
-            UpdatePlayerHand(); // Refresh hand display
+            GD.Print($"CardGameUI: 🃏 LOCAL PLAYER CARD PLAYED - updating hand display (was {currentPlayerCards.Count} cards)");
+            var oldCardCount = currentPlayerCards.Count;
+
+            // 🔥 CRITICAL DEBUG: Check if the played card was actually in our UI list
+            if (currentPlayerCards.Count > 0)
+            {
+                var cardNames = string.Join(", ", currentPlayerCards.Select(c => c.ToString()));
+                GD.Print($"CardGameUI: 🃏 UI cards before update: [{cardNames}]");
+                GD.Print($"CardGameUI: 🃏 Played card was: '{cardString}'");
+            }
+
+            // Force refresh hand display
+            _ = UpdatePlayerHand();
+
+            // Log result after update (defer to allow async completion)
+            CallDeferred(nameof(LogHandUpdateResult), oldCardCount, cardString);
+        }
+        else
+        {
+            GD.Print($"CardGameUI: Other player's card - no hand update needed");
+        }
+    }
+
+    /// <summary>
+    /// Log the result of hand update for debugging
+    /// </summary>
+    private void LogHandUpdateResult(int oldCardCount, string playedCard)
+    {
+        var newCardCount = currentPlayerCards.Count;
+        GD.Print($"CardGameUI: 🃏 Hand update complete - {oldCardCount} -> {newCardCount} cards (played: {playedCard})");
+
+        if (newCardCount == oldCardCount)
+        {
+            GD.PrintErr($"CardGameUI: ⚠️ HAND NOT UPDATED - card count unchanged after playing {playedCard}!");
         }
     }
 
@@ -1361,12 +1484,29 @@ public partial class CardGameUI : Control
     }
 
     /// <summary>
-    /// Handle hand dealt event - cards have been distributed to players
+    /// Handle card dealing completion - update UI
     /// </summary>
     private void OnHandDealt()
     {
         GD.Print("CardGameUI: Cards dealt - updating hand display");
-        UpdatePlayerHand();
+
+        // 🔥 FIXED: Use CallDeferred to ensure UI updates happen on main thread
+        CallDeferred(MethodName.UpdatePlayerHandSafe);
+    }
+
+    /// <summary>
+    /// Update player hand safely on main thread
+    /// </summary>
+    private void UpdatePlayerHandSafe()
+    {
+        // 🔥 FIXED: Additional safety check before UI update
+        if (!IsInstanceValid(this) || IsQueuedForDeletion())
+        {
+            GD.Print("CardGameUI: UpdatePlayerHandSafe called on disposed instance - skipping");
+            return;
+        }
+
+        _ = UpdatePlayerHand();
     }
 
     /// <summary>
@@ -1686,6 +1826,22 @@ public partial class CardGameUI : Control
         // Calculate new position to keep bottom-right corner fixed
         Vector2 newPosition = currentBottomRight - newSize;
 
+        // 🎨 NEW: Calculate font size based on panel size multiplier
+        int newFontSize;
+        if (EnableFontScaling)
+        {
+            newFontSize = Mathf.RoundToInt(BaseChatFontSize * multiplier);
+            // Clamp font size to reasonable bounds for readability
+            newFontSize = Mathf.Clamp(newFontSize, MinChatFontSize, MaxChatFontSize);
+        }
+        else
+        {
+            // Font scaling disabled, use base font size
+            newFontSize = BaseChatFontSize;
+        }
+
+        GD.Print($"CardGameUI: Scaling font from {BaseChatFontSize} to {newFontSize} (multiplier: {multiplier:F1}x)");
+
         // Animate both size and position changes
         var tween = CreateTween();
         if (tween != null)
@@ -1701,12 +1857,20 @@ public partial class CardGameUI : Control
             chatPanel.Position = newPosition;
         }
 
-        // Update chat label to show intimidation status
+        // 🎨 NEW: Apply font size scaling to chat label
         if (chatLabel != null)
         {
+            // Create a new theme override for font size
+            var labelSettings = new LabelSettings();
+            labelSettings.FontSize = newFontSize;
+            chatLabel.LabelSettings = labelSettings;
+
+            GD.Print($"CardGameUI: Applied font size {newFontSize} to chat label");
+
+            // Update chat label to show intimidation status
             if (multiplier > 1.0f)
             {
-                chatLabel.Text = $"DEBUG: Chat panel grew {multiplier:F1}x! Growing UP and LEFT, bottom-right corner should stay fixed.";
+                chatLabel.Text = $"DEBUG: Chat panel grew {multiplier:F1}x! Font size: {newFontSize}px. Growing UP and LEFT, bottom-right corner should stay fixed.";
                 chatLabel.Modulate = Colors.Orange;
             }
             else
@@ -1721,7 +1885,95 @@ public partial class CardGameUI : Control
             GD.PrintErr("CardGameUI: Cannot update chat label - chatLabel is null!");
         }
 
+        // 🔥 NEW: Update chat growth state and timer management
+        currentChatMultiplier = multiplier;
+        bool wasGrown = chatIsGrown;
+        chatIsGrown = (multiplier > 1.0f);
+
+        if (chatIsGrown && !wasGrown)
+        {
+            // Chat just grew - start shrink timer
+            GD.Print("CardGameUI: Chat panel grew - starting shrink timer");
+            StartChatShrinkTimer();
+        }
+        else if (!chatIsGrown && wasGrown)
+        {
+            // Chat just shrunk - stop timer
+            GD.Print("CardGameUI: Chat panel shrunk - stopping shrink timer");
+            if (chatShrinkTimer != null)
+            {
+                chatShrinkTimer.Stop();
+            }
+        }
+        else if (chatIsGrown)
+        {
+            // Chat is still grown - reset timer
+            GD.Print("CardGameUI: Chat panel re-grown - resetting shrink timer");
+            StartChatShrinkTimer();
+        }
+
         GD.Print($"CardGameUI: === END CHAT PANEL GROWTH DEBUG ===");
+    }
+
+    /// <summary>
+    /// Initialize chat shrinking timer system
+    /// </summary>
+    private void InitializeChatTimer()
+    {
+        GD.Print("CardGameUI: Initializing chat shrinking timer system");
+
+        // Create timer for auto-shrinking chat
+        chatShrinkTimer = new Timer();
+        chatShrinkTimer.WaitTime = ChatShrinkDelay;
+        chatShrinkTimer.OneShot = true;
+        chatShrinkTimer.Timeout += OnChatShrinkTimerExpired;
+        AddChild(chatShrinkTimer);
+
+        GD.Print($"CardGameUI: Chat timer initialized with {ChatShrinkDelay}s delay");
+    }
+
+    /// <summary>
+    /// Start the chat shrinking timer (resets if already running)
+    /// </summary>
+    private void StartChatShrinkTimer()
+    {
+        if (chatShrinkTimer == null || !chatIsGrown)
+        {
+            return; // No timer or chat not grown
+        }
+
+        // Stop existing timer and restart
+        chatShrinkTimer.Stop();
+        chatShrinkTimer.Start();
+
+        GD.Print($"CardGameUI: Chat shrink timer started - will auto-shrink in {ChatShrinkDelay}s");
+    }
+
+    /// <summary>
+    /// Handle chat shrink timer expiration
+    /// </summary>
+    private void OnChatShrinkTimerExpired()
+    {
+        GD.Print("CardGameUI: Chat shrink timer expired - auto-shrinking chat to normal size");
+
+        // Shrink chat back to normal
+        ApplyChatPanelGrowth(1.0f);
+        chatIsGrown = false;
+        currentChatMultiplier = 1.0f;
+
+        GD.Print("CardGameUI: Chat auto-shrink completed");
+    }
+
+    /// <summary>
+    /// Reset chat shrink timer when player sends a message
+    /// </summary>
+    private void OnChatActivity()
+    {
+        if (chatIsGrown)
+        {
+            GD.Print("CardGameUI: Chat activity detected - resetting shrink timer");
+            StartChatShrinkTimer();
+        }
     }
 
     /// <summary>
@@ -1732,7 +1984,8 @@ public partial class CardGameUI : Control
     {
         if (cardManager == null || gameManager == null) return;
 
-        int localPlayerId = gameManager.LocalPlayer?.PlayerId ?? 0;
+        // 🔥 FIXED: Use actualLocalPlayerId for accurate card validation
+        int localPlayerId = actualLocalPlayerId;
 
         for (int i = 0; i < cardButtons.Count; i++)
         {
@@ -2381,6 +2634,8 @@ public partial class CardGameUI : Control
             cardManager.CardPlayed -= OnCardPlayed;
             cardManager.TrickCompleted -= OnTrickCompleted;
             cardManager.HandCompleted -= OnHandCompleted;
+            cardManager.HandDealt -= OnHandDealt;
+            cardManager.TurnTimerUpdated -= OnTurnTimerUpdated;
         }
     }
 
@@ -2447,7 +2702,7 @@ public partial class CardGameUI : Control
         var matchManager = MatchManager.Instance;
         if (matchManager == null) return;
 
-        GD.Print($"CardGameUI: Showing Nakama lobby - {matchManager.GetPlayerCount()} players joined");
+        // Lobby shown - no logging to reduce spam
 
         // 🔥 SAFETY: Ensure UI elements are initialized before using them
         if (nakamaLobbyLabel == null || nakamaStatusLabel == null || nakamaStartButton == null || nakamaPlayersList == null)
@@ -2468,14 +2723,14 @@ public partial class CardGameUI : Control
             nakamaStatusLabel.Text = "You are the match owner. Click 'Start Game' when ready!";
             nakamaStatusLabel.Modulate = Colors.LightGreen;
             nakamaStartButton.Visible = true;
-            GD.Print("CardGameUI: Local player is match owner - showing start button");
+            // UI updated - no logging to reduce spam
         }
         else
         {
             nakamaStatusLabel.Text = "Waiting for match owner to start the game...";
             nakamaStatusLabel.Modulate = Colors.Yellow;
             nakamaStartButton.Visible = false;
-            GD.Print("CardGameUI: Waiting for match owner to start game");
+            // Status set - no logging to reduce spam
         }
     }
 
@@ -2495,6 +2750,7 @@ public partial class CardGameUI : Control
 
         // Add current players
         var sortedPlayers = matchManager.Players.Values.OrderBy(p => p.UserId).ToList();
+
         foreach (var player in sortedPlayers)
         {
             var playerLabel = new Label();
@@ -2523,7 +2779,7 @@ public partial class CardGameUI : Control
         slotsLabel.Modulate = Colors.LightGray;
         nakamaPlayersList.AddChild(slotsLabel);
 
-        GD.Print($"CardGameUI: Updated Nakama players list - {matchManager.GetPlayerCount()} players");
+        // UI updated - no logging to reduce spam
     }
 
     /// <summary>
@@ -2804,30 +3060,28 @@ public partial class CardGameUI : Control
         // 🔥 CRITICAL: Initialize GameManager players from Nakama match players
         GD.Print("CardGameUI: Setting up traditional multiplayer system from Nakama players...");
 
+        // SIMPLIFIED: Trust current player collection without complex validation
         // Clear existing players except local
         var localPlayerId = gameManager.LocalPlayer?.PlayerId ?? 1;
         gameManager.ConnectedPlayers.Clear();
 
-        // 🔥 CRITICAL: Validate local player collection (which is working correctly)
+        // Basic validation - ensure we have players
         var localPlayerCount = matchManager.Players.Count;
-        var actualMatchSize = matchManager.GetActualMatchSize();
-
-        GD.Print($"CardGameUI: Local players collection: {localPlayerCount}, Nakama reported sizes: {actualMatchSize}");
+        GD.Print($"CardGameUI: Local players collection: {localPlayerCount} players");
         GD.Print($"CardGameUI: MatchManager.Players contents:");
         foreach (var kvp in matchManager.Players)
         {
             GD.Print($"  - {kvp.Value.Username} (ID: {kvp.Key}, Ready: {kvp.Value.IsReady})");
         }
 
-        // 🔥 FIX: Trust local collection since presence events are working correctly
-        // 🔥 UPDATED: Allow 1+ human players since AI will fill remaining slots to 4 total
+        // Validate minimum players (allow 1+ human players, AI will fill remaining slots)
         if (localPlayerCount < 1)
         {
-            GD.PrintErr($"CardGameUI: Insufficient players in local collection - have {localPlayerCount}, need at least 1 human player");
+            GD.PrintErr($"CardGameUI: Insufficient players - have {localPlayerCount}, need at least 1 human player");
             return;
         }
 
-        GD.Print($"CardGameUI: ✅ Validation passed - {localPlayerCount} human players ready for game start (AI will fill remaining slots)");
+        GD.Print($"CardGameUI: ✅ Basic validation passed - {localPlayerCount} human players ready for game start");
 
         // Add all Nakama players to GameManager with deterministic IDs
         var playerIndex = 0; // Start from 0 for consistency
@@ -2847,15 +3101,23 @@ public partial class CardGameUI : Control
             var nakama = NakamaManager.Instance;
             if (nakama?.Session?.UserId == nakamaPlayer.UserId)
             {
-                // Keep the deterministic ID for consistency
-                isLocalPlayerHost = (playerIndex == 0); // First player in sorted order is host
+                // 🔥 FIXED: Check if local player is actually the match owner (not just first in sorted order)
+                isLocalPlayerHost = matchManager.IsLocalPlayerMatchOwner();
+
+                // 🔥 CRITICAL: Set actualLocalPlayerId for accurate card play synchronization
+                actualLocalPlayerId = playerId;
+                GD.Print($"🎯 CardGameUI: CRITICAL PLAYER ID ASSIGNMENT:");
+                GD.Print($"🎯   - Local player UserId: {nakama?.Session?.UserId}");
+                GD.Print($"🎯   - Assigned game playerId: {playerId}");
+                GD.Print($"🎯   - Is match owner: {isLocalPlayerHost}");
+                GD.Print($"🎯   - actualLocalPlayerId set to: {actualLocalPlayerId}");
 
                 // 🔥 CRITICAL: Update GameManager's LocalPlayer ID to match the deterministic game ID
                 if (gameManager?.LocalPlayer != null)
                 {
                     var oldId = gameManager.LocalPlayer.PlayerId;
                     gameManager.LocalPlayer.PlayerId = playerId;
-                    GD.Print($"CardGameUI: Updated local player ID from {oldId} to {playerId} for card synchronization");
+                    GD.Print($"🎯   - GameManager.LocalPlayer.PlayerId updated: {oldId} -> {playerId}");
                 }
 
                 GD.Print($"CardGameUI: Local player found - using ID {playerId}, isHost: {isLocalPlayerHost}");

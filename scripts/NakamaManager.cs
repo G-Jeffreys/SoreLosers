@@ -233,59 +233,81 @@ public partial class NakamaManager : Node
     }
 
     /// <summary>
-    /// Join an existing match by room code or match ID
+    /// Join a match by room code or direct match ID
+    /// ENHANCED VERSION - better error handling and connection stability
     /// </summary>
-    public async Task<IMatch> JoinMatchAsync(string roomCodeOrMatchId)
+    public async Task<IMatch> JoinMatch(string roomCodeOrMatchId)
     {
+        if (Socket == null || !Socket.IsConnected)
+        {
+            GD.PrintErr("NakamaManager: Cannot join match - socket not connected");
+            return null;
+        }
+
         try
         {
-            if (Socket == null || !Socket.IsConnected)
-            {
-                GD.PrintErr("NakamaManager: Cannot join match - socket not connected");
-                return null;
-            }
+            string actualMatchId = roomCodeOrMatchId;
 
-            // Validate input
-            if (string.IsNullOrWhiteSpace(roomCodeOrMatchId))
+            // Determine if this is a room code (6 chars) or match ID
+            if (roomCodeOrMatchId.Length == 6)
             {
-                GD.PrintErr("NakamaManager: Cannot join match - room code or match ID is null or empty");
-                return null;
-            }
-
-            var input = roomCodeOrMatchId.Trim().ToUpper();
-            string actualMatchId;
-
-            // 🎮 Check if input is a room code (6 characters) or full match ID
-            if (input.Length == 6)
-            {
-                // Treat as room code - search using match listing
-                actualMatchId = await FindMatchIdByRoomCode(input);
-                if (actualMatchId == null)
+                GD.Print($"NakamaManager: Looking up room code '{roomCodeOrMatchId}' in global storage...");
+                actualMatchId = await FindMatchIdByRoomCode(roomCodeOrMatchId);
+                if (string.IsNullOrEmpty(actualMatchId))
                 {
-                    GD.PrintErr($"NakamaManager: Room code '{input}' not found or expired");
+                    GD.PrintErr($"NakamaManager: Room code '{roomCodeOrMatchId}' not found");
                     return null;
                 }
-                GD.Print($"NakamaManager: Found room code '{input}' → Match ID: '{actualMatchId}'");
-            }
-            else
-            {
-                // Treat as full match ID
-                actualMatchId = input;
-                GD.Print($"NakamaManager: Using direct match ID: '{actualMatchId}'");
             }
 
+            // Normalize match ID format
+            if (!actualMatchId.EndsWith("."))
+            {
+                actualMatchId = actualMatchId.ToUpper() + ".";
+            }
+
+            GD.Print($"NakamaManager: Using direct match ID: '{actualMatchId}'");
             GD.Print($"NakamaManager: Attempting to join match...");
             GD.Print($"NakamaManager: Socket connected: {Socket.IsConnected}, Session valid: {Session != null && !Session.IsExpired}");
 
-            var match = await Socket.JoinMatchAsync(actualMatchId);
-
-            if (match != null)
+            // 🔥 CRITICAL: Connect socket events BEFORE joining to capture presence events
+            var matchManager = MatchManager.Instance;
+            if (matchManager != null)
             {
-                GD.Print($"NakamaManager: Successfully joined match: {match.Id}, Players: {match.Size}");
+                GD.Print("NakamaManager: Pre-connecting MatchManager socket events before join");
+                matchManager.ConnectSocketEventsIfAvailable();
             }
-            else
+
+            // ENHANCED: Add retry logic for connection stability
+            IMatch match = null;
+            int maxRetries = 3;
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
             {
-                GD.PrintErr("NakamaManager: JoinMatchAsync returned null");
+                try
+                {
+                    GD.Print($"NakamaManager: Join attempt {attempt}/{maxRetries}");
+                    match = await Socket.JoinMatchAsync(actualMatchId);
+
+                    if (match != null)
+                    {
+                        GD.Print($"NakamaManager: Successfully joined match: {match.Id}, Players: {match.Size}");
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    GD.PrintErr($"NakamaManager: Join attempt {attempt} failed: {ex.Message}");
+                    if (attempt < maxRetries)
+                    {
+                        GD.Print($"NakamaManager: Retrying in 1 second...");
+                        await Task.Delay(1000);
+                    }
+                }
+            }
+
+            if (match == null)
+            {
+                GD.PrintErr($"NakamaManager: Failed to join match after {maxRetries} attempts");
             }
 
             return match;
