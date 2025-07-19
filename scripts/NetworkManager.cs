@@ -61,6 +61,9 @@ public partial class NetworkManager : Node
     public delegate void ClientConnectedToServerEventHandler();
 
     [Signal]
+    public delegate void ChatMessageReceivedEventHandler(int senderId, string senderName, string message);
+
+    [Signal]
     public delegate void GameCreatedEventHandler(string roomCode);
 
     [Signal]
@@ -496,8 +499,46 @@ public partial class NetworkManager : Node
     [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = true)]
     public void SendChatMessage(string message)
     {
-        // TODO: Implement chat message handling
-        // This would integrate with the chat intimidation system
+        GD.Print($"NetworkManager: SendChatMessage called - Message: '{message}'");
+
+        // Get local player info
+        var localPlayer = GameManager.Instance?.LocalPlayer;
+        if (localPlayer == null)
+        {
+            GD.PrintErr("NetworkManager: Cannot send chat message - local player not found");
+            return;
+        }
+
+        // Send message to all players (including self with CallLocal = true)
+        Rpc(MethodName.ReceiveChatMessage, localPlayer.PlayerId, localPlayer.PlayerName, message);
+        GD.Print($"NetworkManager: Chat message sent from {localPlayer.PlayerName}: '{message}'");
+    }
+
+    /// <summary>
+    /// Receive chat message from network
+    /// </summary>
+    /// <param name="senderId">Player ID who sent the message</param>
+    /// <param name="senderName">Name of player who sent the message</param>
+    /// <param name="message">Chat message content</param>
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = true)]
+    public void ReceiveChatMessage(int senderId, string senderName, string message)
+    {
+        GD.Print($"NetworkManager: ReceiveChatMessage - From {senderName} (ID: {senderId}): '{message}'");
+
+        // Emit signal for UI to handle
+        EmitSignal(SignalName.ChatMessageReceived, senderId, senderName, message);
+
+        // Forward to CardGameUI if it exists
+        var cardGameUI = GetTree().GetFirstNodeInGroup("card_game_ui");
+        if (cardGameUI != null)
+        {
+            cardGameUI.Call("OnChatMessageReceived", senderName, message);
+            GD.Print($"NetworkManager: Forwarded chat message to CardGameUI");
+        }
+        else
+        {
+            GD.Print($"NetworkManager: No CardGameUI found to forward chat message");
+        }
     }
 
     /// <summary>

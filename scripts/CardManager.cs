@@ -113,20 +113,41 @@ public partial class CardManager : Node
         }
     }
 
+    // Shuffle seed for synchronization across instances
+    private int currentShuffleSeed = 12345; // Default seed
+
     /// <summary>
     /// Shuffle the deck using Fisher-Yates algorithm
     /// </summary>
     private void ShuffleDeck()
     {
-        // Use deterministic seed for testing so both instances have same shuffle
-        int seed = 12345; // Fixed seed for consistent deck across instances
-        var random = new Random(seed);
+        // 🔥 CRITICAL: For Nakama games, use synchronized seed from MatchManager
+        var matchManager = MatchManager.Instance;
+        if (matchManager?.HasActiveMatch == true)
+        {
+            GD.Print($"CardManager: Shuffling deck with Nakama-synchronized seed: {currentShuffleSeed}");
+        }
+        else
+        {
+            GD.Print($"CardManager: Shuffling deck with seed: {currentShuffleSeed}");
+        }
 
+        var random = new Random(currentShuffleSeed);
         for (int i = Deck.Count - 1; i > 0; i--)
         {
             int j = random.Next(i + 1);
             (Deck[i], Deck[j]) = (Deck[j], Deck[i]);
         }
+    }
+
+    /// <summary>
+    /// Set shuffle seed for synchronized dealing across instances
+    /// </summary>
+    /// <param name="seed">Shuffle seed</param>
+    public void SetShuffleSeed(int seed)
+    {
+        currentShuffleSeed = seed;
+        GD.Print($"CardManager: Shuffle seed set to: {seed}");
     }
 
     /// <summary>
@@ -139,8 +160,20 @@ public partial class CardManager : Node
 
         var gameManager = GameManager.Instance;
         var networkManager = gameManager?.NetworkManager;
+        var matchManager = MatchManager.Instance;
 
-        // If networked, only host should start the game and broadcast to clients
+        // 🔥 CRITICAL: Check if this is a Nakama match game
+        bool isNakamaGame = (matchManager?.HasActiveMatch == true);
+
+        if (isNakamaGame)
+        {
+            GD.Print("CardManager: Detected Nakama game - using local execution with Nakama sync");
+            // For Nakama games, run locally on each instance and sync via Nakama messages
+            ExecuteGameStart(playerIds);
+            return;
+        }
+
+        // Traditional ENet multiplayer logic
         if (networkManager != null && networkManager.IsConnected)
         {
             if (networkManager.IsHost)

@@ -200,18 +200,28 @@ public partial class GameManager : Node
 
             try
             {
-                // Try to create exclusive lock file
-                var lockFile = FileAccess.Open(hostLockFilePath, FileAccess.ModeFlags.Write);
-                if (lockFile != null)
+                // CRITICAL FIX: Check if lock file already exists first
+                if (FileAccess.FileExists(hostLockFilePath))
                 {
-                    lockFile.StoreString($"host_pid_{processId}_{timestamp}");
-                    lockFile.Close();
-                    isFirstInstance = true;
-                    GD.Print($"GameManager: Created host lock file at {hostLockFilePath}");
+                    GD.Print($"GameManager: Lock file already exists at {hostLockFilePath} - this is NOT the first instance");
+                    isFirstInstance = false;
                 }
                 else
                 {
-                    GD.Print($"GameManager: Lock file exists - not first instance");
+                    // File doesn't exist - try to create it (we are first instance)
+                    var lockFile = FileAccess.Open(hostLockFilePath, FileAccess.ModeFlags.Write);
+                    if (lockFile != null)
+                    {
+                        lockFile.StoreString($"host_pid_{processId}_{timestamp}");
+                        lockFile.Close();
+                        isFirstInstance = true;
+                        GD.Print($"GameManager: Created host lock file at {hostLockFilePath}");
+                    }
+                    else
+                    {
+                        GD.Print($"GameManager: Failed to create lock file - not first instance");
+                        isFirstInstance = false;
+                    }
                 }
             }
             catch (Exception ex)

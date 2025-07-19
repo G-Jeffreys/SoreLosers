@@ -20,6 +20,9 @@ public partial class MatchManager : Node
     private NakamaManager nakama;
     private IMatch currentMatch;
 
+    // Public property to check if we have an active match
+    public bool HasActiveMatch => currentMatch != null;
+
     // Game state - using match-specific player data
     public Dictionary<string, MatchPlayerData> Players { get; private set; } = new();
     public bool IsGameInProgress { get; private set; } = false;
@@ -27,7 +30,7 @@ public partial class MatchManager : Node
     public List<CardPlayData> CurrentTrick { get; private set; } = new();
     public int TricksPlayed { get; private set; } = 0;
 
-    // Match operation codes (replaces 29 RPC methods with 6 message types)
+    // Match operation codes (replaces 29 RPC methods with 7 message types)
     public enum MatchOpCode
     {
         PlayerJoined = 1,        // Player joins lobby
@@ -35,7 +38,8 @@ public partial class MatchManager : Node
         GameStart = 3,           // Game initialization
         CardPlayed = 4,          // Card play action
         TurnChange = 5,          // Turn progression
-        GameEnd = 6              // Game completion
+        GameEnd = 6,             // Game completion
+        ChatMessage = 7          // Chat message between players
     }
 
     // Events for UI and game systems
@@ -45,6 +49,7 @@ public partial class MatchManager : Node
     [Signal] public delegate void GameStartedEventHandler();
     [Signal] public delegate void CardPlayedEventHandler();
     [Signal] public delegate void TurnChangedEventHandler(string currentPlayerId);
+    [Signal] public delegate void ChatMessageReceivedEventHandler(string senderId, string senderName, string message);
     [Signal] public delegate void TrickCompletedEventHandler();
     [Signal] public delegate void GameEndedEventHandler(string winnerId);
 
@@ -108,6 +113,18 @@ public partial class MatchManager : Node
         currentMatch = match;
         GD.Print($"MatchManager: Set current match: {match.Id}");
 
+        // 🔥 CRITICAL: Ensure nakama reference is properly set
+        if (nakama == null)
+        {
+            nakama = NakamaManager.Instance;
+            if (nakama == null)
+            {
+                GD.PrintErr("MatchManager: Failed to get NakamaManager instance!");
+                return;
+            }
+            GD.Print("MatchManager: Successfully got NakamaManager reference");
+        }
+
         // Initialize players from current match
         Players.Clear();
         foreach (var presence in match.Presences)
@@ -122,6 +139,11 @@ public partial class MatchManager : Node
             nakama.Socket.ReceivedMatchPresence -= OnMatchPresenceReceived;
             nakama.Socket.ReceivedMatchState += OnMatchStateReceived;
             nakama.Socket.ReceivedMatchPresence += OnMatchPresenceReceived;
+            GD.Print("MatchManager: Successfully connected to Nakama socket events");
+        }
+        else
+        {
+            GD.PrintErr("MatchManager: Nakama socket is null - cannot connect events!");
         }
     }
 
@@ -139,19 +161,29 @@ public partial class MatchManager : Node
         }
         else
         {
-            // Add new player
+            // Add new player - 🔥 AUTO-READY: Mark new players as ready automatically for seamless gameplay
+            var autoReady = true; // Auto-mark all joining players as ready
+
             var playerData = new MatchPlayerData
             {
                 UserId = userId,
                 Username = username,
-                IsReady = isReady,
+                IsReady = autoReady,
                 Score = 0,
                 CardCount = 0
             };
 
             Players[userId] = playerData;
-            GD.Print($"MatchManager: Added player: {username} ({userId})");
-            EmitSignal(SignalName.PlayerJoinedGame);
+            GD.Print($"MatchManager: Added player: {username} ({userId}) - Auto-marked as ready: {autoReady}");
+
+            // 🔥 CRITICAL: Use CallDeferred for thread safety
+            CallDeferred(MethodName.EmitPlayerJoinedSignal);
+
+            // Emit ready changed signal for the auto-ready status
+            if (autoReady)
+            {
+                CallDeferred(MethodName.EmitPlayerReadyChangedSignal, userId, true);
+            }
         }
     }
 
@@ -165,8 +197,18 @@ public partial class MatchManager : Node
             var player = Players[userId];
             Players.Remove(userId);
             GD.Print($"MatchManager: Removed player: {player.Username} ({userId})");
-            EmitSignal(SignalName.PlayerLeftGame);
+
+            // 🔥 CRITICAL: Use CallDeferred for thread safety
+            CallDeferred(MethodName.EmitPlayerLeftSignal);
         }
+    }
+
+    /// <summary>
+    /// Emit PlayerLeftGame signal from main thread (fixes threading issues)
+    /// </summary>
+    private void EmitPlayerLeftSignal()
+    {
+        EmitSignal(SignalName.PlayerLeftGame);
     }
 
     /// <summary>
@@ -314,6 +356,32 @@ public partial class MatchManager : Node
     }
 
     /// <summary>
+    /// Send a chat message to all players in the match
+    /// </summary>
+    public async Task SendChatMessage(string message)
+    {
+        var localUserId = nakama?.Session?.UserId ?? "";
+        var localUsername = Players.GetValueOrDefault(localUserId)?.Username ?? "Unknown";
+
+        if (string.IsNullOrEmpty(localUserId))
+        {
+            GD.PrintErr("MatchManager: Cannot send chat - no local user");
+            return;
+        }
+
+        var chatMessage = new ChatMessageData
+        {
+            SenderId = localUserId,
+            SenderName = localUsername,
+            Message = message,
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+        };
+
+        await SendMatchMessage(MatchOpCode.ChatMessage, chatMessage);
+        GD.Print($"MatchManager: Sent chat message: {message}");
+    }
+
+    /// <summary>
     /// End the current game
     /// </summary>
     public async Task EndGame(string winnerId)
@@ -352,19 +420,40 @@ public partial class MatchManager : Node
     {
         try
         {
-            if (currentMatch == null || nakama?.Socket == null)
+            // 🔥 CRITICAL: Enhanced debugging for message sending
+            GD.Print($"MatchManager: Attempting to send message {opCode}");
+            GD.Print($"MatchManager: Current match null: {currentMatch == null}");
+            GD.Print($"MatchManager: Nakama null: {nakama == null}");
+            GD.Print($"MatchManager: Nakama socket null: {nakama?.Socket == null}");
+
+            if (currentMatch == null)
             {
-                GD.PrintErr("MatchManager: Cannot send message - no active match or socket");
+                GD.PrintErr("MatchManager: Cannot send message - no active match");
                 return;
             }
 
+            if (nakama?.Socket == null)
+            {
+                GD.PrintErr("MatchManager: Cannot send message - no socket connection");
+                // Try to reconnect nakama reference
+                nakama = NakamaManager.Instance;
+                if (nakama?.Socket == null)
+                {
+                    GD.PrintErr("MatchManager: Still no socket after getting NakamaManager instance");
+                    return;
+                }
+                GD.Print("MatchManager: Successfully reconnected to NakamaManager");
+            }
+
             var json = JsonSerializer.Serialize(messageData);
+            GD.Print($"MatchManager: Sending message to match {currentMatch.Id}");
             await nakama.Socket.SendMatchStateAsync(currentMatch.Id, (long)opCode, json);
-            GD.Print($"MatchManager: Sent message {opCode}");
+            GD.Print($"MatchManager: Successfully sent message {opCode}");
         }
         catch (Exception ex)
         {
             GD.PrintErr($"MatchManager: Failed to send message: {ex.Message}");
+            GD.PrintErr($"MatchManager: Exception stack trace: {ex.StackTrace}");
         }
     }
 
@@ -396,6 +485,9 @@ public partial class MatchManager : Node
                     break;
                 case MatchOpCode.GameEnd:
                     HandleGameEndMessage(data);
+                    break;
+                case MatchOpCode.ChatMessage:
+                    HandleChatMessage(data);
                     break;
                 default:
                     GD.Print($"MatchManager: Unknown message type: {opCode}");
@@ -440,7 +532,9 @@ public partial class MatchManager : Node
             if (Players.ContainsKey(message.PlayerId))
             {
                 Players[message.PlayerId].IsReady = message.IsReady;
-                EmitSignal(SignalName.PlayerReadyChanged, message.PlayerId, message.IsReady);
+
+                // 🔥 CRITICAL: Use CallDeferred for thread safety
+                CallDeferred(MethodName.EmitPlayerReadyChangedSignal, message.PlayerId, message.IsReady);
                 GD.Print($"MatchManager: Player {message.PlayerName} ready: {message.IsReady}");
             }
         }
@@ -462,13 +556,39 @@ public partial class MatchManager : Node
             CurrentTrick.Clear();
             TricksPlayed = 0;
 
-            EmitSignal(SignalName.GameStarted);
+            // 🔥 CRITICAL: Use CallDeferred to emit signal from main thread
+            CallDeferred(MethodName.EmitGameStartedSignal);
             GD.Print("MatchManager: Game started!");
         }
         catch (Exception ex)
         {
             GD.PrintErr($"MatchManager: Error handling game start message: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Emit GameStarted signal from main thread (fixes threading issues)
+    /// </summary>
+    private void EmitGameStartedSignal()
+    {
+        EmitSignal(SignalName.GameStarted);
+        GD.Print("MatchManager: GameStarted signal emitted from main thread");
+    }
+
+    /// <summary>
+    /// Emit PlayerJoinedGame signal from main thread (fixes threading issues)
+    /// </summary>
+    private void EmitPlayerJoinedSignal()
+    {
+        EmitSignal(SignalName.PlayerJoinedGame);
+    }
+
+    /// <summary>
+    /// Emit PlayerReadyChanged signal from main thread (fixes threading issues)
+    /// </summary>
+    private void EmitPlayerReadyChangedSignal(string userId, bool isReady)
+    {
+        EmitSignal(SignalName.PlayerReadyChanged, userId, isReady);
     }
 
     private void HandleCardPlayedMessage(string data)
@@ -521,6 +641,32 @@ public partial class MatchManager : Node
         {
             GD.PrintErr($"MatchManager: Error handling game end message: {ex.Message}");
         }
+    }
+
+    private void HandleChatMessage(string data)
+    {
+        try
+        {
+            var message = JsonSerializer.Deserialize<ChatMessageData>(data);
+
+            GD.Print($"MatchManager: Received chat message from {message.SenderName}: {message.Message}");
+
+            // 🔥 CRITICAL: Use CallDeferred to emit signal from main thread and store data
+            CallDeferred(MethodName.EmitChatMessageSignal, message.SenderId, message.SenderName, message.Message);
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"MatchManager: Error handling chat message: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Emit ChatMessageReceived signal from main thread (fixes threading issues)
+    /// </summary>
+    private void EmitChatMessageSignal(string senderId, string senderName, string message)
+    {
+        GD.Print($"MatchManager: Emitting chat signal for {senderName}: {message}");
+        EmitSignal(SignalName.ChatMessageReceived, senderId, senderName, message);
     }
 
     #endregion
@@ -597,5 +743,16 @@ public class CardPlayData
     public string PlayerName { get; set; }
     public string Suit { get; set; }
     public string Rank { get; set; }
+    public long Timestamp { get; set; }
+}
+
+/// <summary>
+/// Chat message data structure
+/// </summary>
+public class ChatMessageData
+{
+    public string SenderId { get; set; }
+    public string SenderName { get; set; }
+    public string Message { get; set; }
     public long Timestamp { get; set; }
 }
