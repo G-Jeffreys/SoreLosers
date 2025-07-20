@@ -8,6 +8,25 @@ using System;
 /// </summary>
 public partial class Player : CharacterBody2D
 {
+    // Sprite direction system for character sprite sheet
+    public enum FacingDirection
+    {
+        Up = 0,    // Top row of sprite sheet
+        Right = 1, // Second row of sprite sheet
+        Down = 2,  // Third row of sprite sheet
+        Left = 3   // Bottom row of sprite sheet
+    }
+
+    // Sprite system references
+    private AnimatedSprite2D playerSprite;
+    private FacingDirection currentFacing = FacingDirection.Up; // Default to facing up
+
+    // Sprite sheet configuration
+    [Export]
+    public int SpriteFramesPerDirection = 4; // Number of animation frames per direction
+    [Export]
+    public float AnimationSpeed = 8.0f; // Animation playback speed
+
     // Player data reference
     public PlayerData PlayerData { get; private set; }
 
@@ -109,6 +128,9 @@ public partial class Player : CharacterBody2D
         // Initialize movement tracking
         lastPosition = GlobalPosition;
 
+        // Initialize sprite system
+        InitializePlayerSprite();
+
         GD.Print($"Player: Player controller initialized with speed {CurrentSpeed}");
     }
 
@@ -126,6 +148,136 @@ public partial class Player : CharacterBody2D
         {
             CurrentSpeed = BaseSpeed;
             GD.Print($"Player: Using base movement speed {BaseSpeed} px/s");
+        }
+    }
+
+    /// <summary>
+    /// Initialize the player sprite system with sprite sheet texture and animations
+    /// </summary>
+    private void InitializePlayerSprite()
+    {
+        // Get reference to the AnimatedSprite2D node
+        playerSprite = GetNode<AnimatedSprite2D>("PlayerSprite");
+        if (playerSprite == null)
+        {
+            GD.PrintErr("Player: Failed to find PlayerSprite (AnimatedSprite2D) node!");
+            return;
+        }
+
+        GD.Print("Player: Setting up sprite sheet system...");
+
+        // Load the sprite sheet texture
+        var spriteTexture = GD.Load<Texture2D>("res://assets/environment/players/Blonde_guy_with_eypa...-694987079-0.png");
+        if (spriteTexture == null)
+        {
+            GD.PrintErr("Player: Failed to load sprite sheet texture!");
+            return;
+        }
+
+        // Create SpriteFrames resource for AnimatedSprite2D
+        var spriteFrames = new SpriteFrames();
+
+        // Calculate frame dimensions (assuming 4 directions with multiple frames each)
+        int textureWidth = spriteTexture.GetWidth();
+        int textureHeight = spriteTexture.GetHeight();
+        int frameWidth = textureWidth / SpriteFramesPerDirection; // Assuming 4 frames per row
+        int frameHeight = textureHeight / 4; // Assuming 4 rows (up, down, left, right)
+
+        GD.Print($"Player: Sprite sheet dimensions: {textureWidth}x{textureHeight}");
+        GD.Print($"Player: Frame dimensions: {frameWidth}x{frameHeight}");
+        GD.Print($"Player: Setting up {SpriteFramesPerDirection} frames per direction");
+
+        // Create animations for each direction
+        foreach (FacingDirection direction in System.Enum.GetValues<FacingDirection>())
+        {
+            string animationName = direction.ToString().ToLower();
+            spriteFrames.AddAnimation(animationName);
+            spriteFrames.SetAnimationSpeed(animationName, AnimationSpeed);
+            spriteFrames.SetAnimationLoop(animationName, true);
+
+            int row = (int)direction;
+            GD.Print($"Player: Creating animation '{animationName}' for row {row}");
+
+            // Add frames for this direction
+            for (int frame = 0; frame < SpriteFramesPerDirection; frame++)
+            {
+                // Create AtlasTexture for this frame
+                var atlasTexture = new AtlasTexture();
+                atlasTexture.Atlas = spriteTexture;
+                atlasTexture.Region = new Rect2(
+                    frame * frameWidth,     // X position in sprite sheet
+                    row * frameHeight,      // Y position in sprite sheet
+                    frameWidth,             // Frame width
+                    frameHeight             // Frame height
+                );
+
+                spriteFrames.AddFrame(animationName, atlasTexture);
+                GD.Print($"Player: Added frame {frame} for {animationName} at region ({frame * frameWidth}, {row * frameHeight}, {frameWidth}, {frameHeight})");
+            }
+        }
+
+        // Apply the sprite frames to the AnimatedSprite2D
+        playerSprite.SpriteFrames = spriteFrames;
+
+        // Set initial animation to facing up and make sure it's visible
+        SetSpriteDirection(FacingDirection.Up);
+
+        // Ensure the sprite is visible and playing the idle animation
+        playerSprite.Play();
+
+        GD.Print("Player: Sprite sheet system initialized successfully!");
+    }
+
+    /// <summary>
+    /// Set the sprite direction and play appropriate animation
+    /// </summary>
+    /// <param name="direction">Direction the player is facing</param>
+    private void SetSpriteDirection(FacingDirection direction)
+    {
+        if (playerSprite == null) return;
+
+        // Always update direction and ensure sprite is playing
+        currentFacing = direction;
+        string animationName = direction.ToString().ToLower();
+
+        GD.Print($"Player: Setting sprite direction to {direction} (animation: {animationName})");
+
+        playerSprite.Animation = animationName;
+        playerSprite.Play(); // Always play to ensure visibility
+    }
+
+    /// <summary>
+    /// Update sprite direction based on movement input
+    /// </summary>
+    /// <param name="inputDirection">Current movement input vector</param>
+    private void UpdateSpriteDirection(Vector2 inputDirection)
+    {
+        if (inputDirection == Vector2.Zero) return; // Don't change direction when not moving
+
+        // Determine primary direction based on input (prioritize vertical movement)
+        if (Mathf.Abs(inputDirection.Y) > Mathf.Abs(inputDirection.X))
+        {
+            // Vertical movement takes priority
+            if (inputDirection.Y < 0) // Moving up
+            {
+                SetSpriteDirection(FacingDirection.Up);
+            }
+            else // Moving down
+            {
+                SetSpriteDirection(FacingDirection.Down);
+            }
+        }
+        else
+        {
+            // Horizontal movement
+            if (inputDirection.X < 0) // Moving left
+            {
+                SetSpriteDirection(FacingDirection.Left);
+            }
+            else // Moving right
+            {
+                SetSpriteDirection(FacingDirection.Right);
+            }
         }
     }
 
@@ -152,6 +304,15 @@ public partial class Player : CharacterBody2D
         {
             velocity = inputDirection * CurrentSpeed;
 
+            // Update sprite direction based on movement
+            UpdateSpriteDirection(inputDirection);
+
+            // Reset animation speed to normal when moving
+            if (playerSprite != null)
+            {
+                playerSprite.SpeedScale = 1.0f; // Normal animation speed
+            }
+
             // Emit movement signal for networking
             EmitSignal(SignalName.PlayerMoved, GlobalPosition);
         }
@@ -159,6 +320,16 @@ public partial class Player : CharacterBody2D
         {
             // Apply friction when no input
             velocity = velocity.MoveToward(Vector2.Zero, CurrentSpeed * 3.0f * (float)delta);
+
+            // Keep sprite visible but slow down animation when not moving
+            if (playerSprite != null)
+            {
+                // Keep the sprite playing but at a slower speed for idle animation
+                if (playerSprite.IsPlaying())
+                {
+                    playerSprite.SpeedScale = 0.3f; // Slow idle animation
+                }
+            }
         }
 
         // Apply movement
