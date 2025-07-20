@@ -352,7 +352,7 @@ public partial class MatchManager : Node
         if (!string.IsNullOrEmpty(originalMatchOwnerId))
         {
             bool isOwner = originalMatchOwnerId == localUserId;
-            GD.Print($"MatchManager[PID:{processId}]: 🏆 Match ownership check - Original: {originalMatchOwnerId}, Local: {localUserId}, IsOwner: {isOwner}");
+            // 🔥 REMOVED LOGGING: This method is called frequently and was causing infinite loop spam
             return isOwner;
         }
 

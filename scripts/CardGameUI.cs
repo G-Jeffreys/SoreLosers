@@ -138,14 +138,12 @@ public partial class CardGameUI : Control
     private int lastTrickCount = -1;
     private List<CardPlay> lastTrickState = new();
 
-    // Round results display system - NEW
+    // Round results display system - NEW (UI ONLY - no timer)
     private Panel roundResultsPanel;
     private Label roundResultsLabel;
     private Label roundResultsTimerLabel;
-    private Timer roundResultsTimer;
     private bool showingRoundResults = false;
-    private float roundResultsTimeRemaining = 0.0f;
-    private const float RoundResultsDisplayDuration = 10.0f; // 10 seconds as requested
+    // 🔥 NO UI TIMER - CardManager handles all timing
 
     public override void _Ready()
     {
@@ -327,6 +325,32 @@ public partial class CardGameUI : Control
 
         var gameState = cardManager.GetGameState();
 
+        // 🔥 CRITICAL FIX: Force refresh if we detect trick display desync
+        // This prevents the "7 cards instead of 3" bug where old cards persist
+        if (trickArea != null)
+        {
+            int currentDisplayCount = trickArea.GetChildCount();
+            int actualTrickCount = gameState.CurrentTrick.Count;
+
+            if (currentDisplayCount != actualTrickCount)
+            {
+                GD.Print($"CardGameUI: 🔧 TRICK DESYNC DETECTED - Display: {currentDisplayCount}, Actual: {actualTrickCount} - Force refresh");
+                ClearTrickDisplay(); // Force clear to prevent card accumulation
+                lastTrickCount = -1; // Force update
+                lastTrickState.Clear();
+            }
+
+            // 🔥 ADDITIONAL FIX: If we have more display cards than actual cards, always force clear
+            // This handles cases where old trick cards persist from previous tricks
+            if (currentDisplayCount > actualTrickCount && actualTrickCount < 4)
+            {
+                GD.Print($"CardGameUI: 🔧 CARD ACCUMULATION DETECTED - Force clearing {currentDisplayCount} old cards, actual trick has {actualTrickCount}");
+                ClearTrickDisplay();
+                lastTrickCount = -1;
+                lastTrickState.Clear();
+            }
+        }
+
         // Only update if trick count or composition changed
         bool trickChanged = false;
 
@@ -452,24 +476,26 @@ public partial class CardGameUI : Control
     {
         GD.Print($"CardGameUI: ClearTrickDisplay called - removing all TrickCard nodes");
 
-        // Get all trick card children first
-        var trickCards = new List<Node>();
-        foreach (Node child in trickArea.GetChildren())
+        if (trickArea == null)
         {
-            if (child.Name.ToString().StartsWith("TrickCard"))
+            GD.PrintErr("CardGameUI: trickArea is null in ClearTrickDisplay");
+            return;
+        }
+
+        // 🔥 CRITICAL FIX: Remove ALL children to prevent card accumulation bug
+        // The old method only removed cards starting with "TrickCard" which missed some
+        var allChildren = trickArea.GetChildren().ToArray(); // Copy to avoid modification during iteration
+
+        foreach (Node child in allChildren)
+        {
+            if (IsInstanceValid(child))
             {
-                trickCards.Add(child);
+                trickArea.RemoveChild(child);
+                child.QueueFree();
             }
         }
 
-        // Remove them immediately, not deferred
-        foreach (Node card in trickCards)
-        {
-            trickArea.RemoveChild(card);
-            card.QueueFree(); // Still queue for proper cleanup, but remove from parent immediately
-        }
-
-        GD.Print($"CardGameUI: Cleared {trickCards.Count} trick cards immediately");
+        GD.Print($"CardGameUI: Cleared {allChildren.Length} trick cards immediately");
     }
 
     /// <summary>
@@ -807,6 +833,8 @@ public partial class CardGameUI : Control
         cardManager.TurnEnded += OnTurnEnded;
         cardManager.CardPlayed += OnCardPlayed;
         cardManager.TrickCompleted += OnTrickCompleted;
+        cardManager.EndOfRoundStarted += OnEndOfRoundStarted;
+        cardManager.EndOfRoundCompleted += OnEndOfRoundCompleted;
         cardManager.HandCompleted += OnHandCompleted;
         cardManager.HandDealt += OnHandDealt;
         cardManager.TurnTimerUpdated += OnTurnTimerUpdated;
@@ -1738,15 +1766,15 @@ public partial class CardGameUI : Control
     }
 
     /// <summary>
-    /// Handle trick completed event
+    /// Handle trick completed event - OLD METHOD, now minimal since end-of-round handles display
     /// </summary>
     /// <param name="winnerId">Player who won the trick</param>
     private void OnTrickCompleted(int winnerId)
     {
-        GD.Print($"CardGameUI: ========== TRICK COMPLETED ==========");
-        GD.Print($"CardGameUI: Player {winnerId} won the trick");
+        GD.Print($"CardGameUI: ========== TRICK COMPLETED (LEGACY) ==========");
+        GD.Print($"CardGameUI: Player {winnerId} won the trick - but end-of-round system will handle display");
 
-        // Log current trick state before cleanup
+        // Log current trick state for debugging
         if (cardManager != null)
         {
             var gameState = cardManager.GetGameState();
@@ -1755,31 +1783,97 @@ public partial class CardGameUI : Control
             GD.Print($"CardGameUI: Next trick leader will be: {winnerId}");
         }
 
-        // Show round results overlay (non-blocking visual display)
+        // DO NOT show round results or clear display here anymore
+        // The new end-of-round system (OnEndOfRoundStarted/OnEndOfRoundCompleted) handles this
+
+        // Only update scores - don't clear anything
+        UpdateScoreDisplay();
+
+        GD.Print("CardGameUI: Trick completed - waiting for end-of-round system to handle display");
+        GD.Print($"CardGameUI: ========== TRICK COMPLETED (LEGACY) END ==========");
+    }
+
+    /// <summary>
+    /// Handle end-of-round started event - show results and keep cards visible
+    /// </summary>
+    /// <param name="winnerId">Player who won the trick</param>
+    private void OnEndOfRoundStarted(int winnerId)
+    {
+        GD.Print($"CardGameUI: ========== END OF ROUND STARTED ==========");
+        GD.Print($"CardGameUI: End-of-round phase started - winner: {winnerId}, 10-second display period");
+
+        // Show round results overlay but DON'T clear cards yet
         if (cardManager != null)
         {
             // Get the next trick leader (winner of this trick leads next trick)
             int nextLeaderId = winnerId;
 
-            // Show round results with 10-second countdown (visual overlay only)
+            // Show round results - let CardManager timer control the countdown
             ShowRoundResults(winnerId, nextLeaderId);
         }
 
-        // CRITICAL: Always do immediate cleanup so game logic can continue
-        GD.Print($"CardGameUI: Starting immediate trick cleanup...");
+        // DO NOT clear trick display yet - let players see the final cards
+        // Trick will be cleared when OnEndOfRoundCompleted is called
 
-        // Clear trick area using the dedicated method
+        GD.Print($"CardGameUI: End-of-round display active - cards remain visible for 10 seconds");
+        GD.Print($"CardGameUI: ========== END OF ROUND STARTED END ==========");
+    }
+
+    /// <summary>
+    /// Handle end-of-round completed event - clean up display and continue game
+    /// </summary>
+    private void OnEndOfRoundCompleted()
+    {
+        var processId = System.Diagnostics.Process.GetCurrentProcess().Id;
+        GD.Print($"CardGameUI[PID:{processId}]: ========== END OF ROUND COMPLETED ==========");
+        GD.Print($"CardGameUI[PID:{processId}]: End-of-round phase completed by CardManager - cleaning up trick display");
+
+        // Log current trick display state before cleanup
+        if (trickArea != null)
+        {
+            int childCount = trickArea.GetChildCount();
+            GD.Print($"CardGameUI[PID:{processId}]: TrickArea has {childCount} children before cleanup");
+        }
+
+        // 🔥 CRITICAL: Always clean up the trick display when CardManager completes end-of-round
         ClearTrickDisplay();
 
         // Reset trick tracking state
         lastTrickCount = 0;
         lastTrickState.Clear();
 
+        // Hide round results (if still showing) - this is the authoritative cleanup
+        if (showingRoundResults)
+        {
+            GD.Print($"CardGameUI[PID:{processId}]: Hiding round results panel as part of end-of-round completion");
+            HideRoundResults();
+        }
+
         // Update scores if needed
         UpdateScoreDisplay();
 
-        GD.Print("CardGameUI: Trick cleanup completed immediately - game can continue");
-        GD.Print($"CardGameUI: ========== TRICK COMPLETED END ==========");
+        // Log final state
+        if (trickArea != null)
+        {
+            int childCountAfter = trickArea.GetChildCount();
+            GD.Print($"CardGameUI[PID:{processId}]: TrickArea has {childCountAfter} children after cleanup");
+
+            // 🔥 SAFETY CHECK: Ensure cards were actually cleaned up
+            if (childCountAfter > 0)
+            {
+                GD.PrintErr($"CardGameUI[PID:{processId}]: WARNING - TrickArea still has {childCountAfter} children after cleanup!");
+                // Force additional cleanup
+                foreach (Node child in trickArea.GetChildren())
+                {
+                    GD.Print($"CardGameUI[PID:{processId}]: Force removing remaining child: {child.Name}");
+                    trickArea.RemoveChild(child);
+                    child.QueueFree();
+                }
+            }
+        }
+
+        GD.Print($"CardGameUI[PID:{processId}]: End-of-round cleanup completed - ready for next trick");
+        GD.Print($"CardGameUI[PID:{processId}]: ========== END OF ROUND COMPLETED END ==========");
     }
 
     /// <summary>
@@ -1873,6 +1967,16 @@ public partial class CardGameUI : Control
         // This allows clients to receive timer updates from the host
         // The actual timer display is handled in UpdateTimerDisplay()
         // which now gets the synchronized timer value
+
+        // 🔥 NEW: Also update round results countdown if showing
+        if (showingRoundResults && roundResultsTimerLabel != null)
+        {
+            int secondsLeft = Mathf.CeilToInt(timeRemaining);
+            roundResultsTimerLabel.Text = $"Next round starting in {secondsLeft} seconds...";
+
+            // 🔥 REMOVED LOGGING: This was causing infinite spam in logs during end-of-round
+            // Note: Don't hide here - let CardManager's OnEndOfRoundCompleted handle cleanup
+        }
     }
 
     #region MatchManager Event Handlers (Nakama Integration)
@@ -2449,11 +2553,7 @@ public partial class CardGameUI : Control
         vbox.AddChild(roundResultsTimerLabel);
 
         // Create timer for countdown updates
-        roundResultsTimer = new Timer();
-        roundResultsTimer.WaitTime = 1.0f; // Update every second
-        roundResultsTimer.Autostart = false;
-        roundResultsTimer.Timeout += OnRoundResultsTimerTick;
-        AddChild(roundResultsTimer);
+        // 🔥 NO TIMER NEEDED - CardManager handles all timing
 
         // Add panel to main UI (on top of everything)
         AddChild(roundResultsPanel);
@@ -2461,31 +2561,7 @@ public partial class CardGameUI : Control
         GD.Print("CardGameUI: Round results display system initialized");
     }
 
-    /// <summary>
-    /// Handle round results timer tick (countdown)
-    /// </summary>
-    private void OnRoundResultsTimerTick()
-    {
-        if (!showingRoundResults) return;
-
-        // Decrease countdown by 1 second
-        roundResultsTimeRemaining -= 1.0f;
-
-        GD.Print($"CardGameUI: Round results timer tick - {roundResultsTimeRemaining}s remaining");
-
-        if (roundResultsTimeRemaining <= 0.0f)
-        {
-            // Time's up - hide results
-            GD.Print("CardGameUI: Round results timer finished - hiding results");
-            HideRoundResults();
-        }
-        else
-        {
-            // Update countdown display
-            int secondsLeft = Mathf.CeilToInt(roundResultsTimeRemaining);
-            roundResultsTimerLabel.Text = $"Next round starting in {secondsLeft} seconds...";
-        }
-    }
+    // 🔥 REMOVED: OnRoundResultsTimerTick - no longer needed, CardManager handles timing
 
     /// <summary>
     /// Show round results with winner and next player info
@@ -2503,20 +2579,26 @@ public partial class CardGameUI : Control
         // Set results text
         roundResultsLabel.Text = $"🏆 {winnerName} won the round!\n\n🎯 {nextLeaderName} will start the next round";
 
-        // Initialize countdown
-        roundResultsTimeRemaining = RoundResultsDisplayDuration;
-        int secondsLeft = Mathf.CeilToInt(roundResultsTimeRemaining);
-        roundResultsTimerLabel.Text = $"Next round starting in {secondsLeft} seconds...";
+        // 🔥 FIX: Get initial countdown from CardManager instead of using independent time
+        if (cardManager != null)
+        {
+            var gameState = cardManager.GetGameState();
+            int secondsLeft = Mathf.CeilToInt(gameState.TurnTimeRemaining);
+            roundResultsTimerLabel.Text = $"Next round starting in {secondsLeft} seconds...";
+        }
+        else
+        {
+            roundResultsTimerLabel.Text = "Next round starting soon...";
+        }
 
         // Show panel
         roundResultsPanel.Visible = true;
         showingRoundResults = true;
 
-        // Start repeating 1-second timer for countdown updates
-        roundResultsTimer.Start();
+        // 🔥 NO TIMER START - CardManager handles all timing via TurnTimerUpdated signal
 
-        GD.Print($"CardGameUI: Showing round results visual overlay - Winner: {winnerName}, Next Leader: {nextLeaderName}, Duration: {RoundResultsDisplayDuration}s");
-        GD.Print($"CardGameUI: Round results is visual-only overlay - game logic continues immediately");
+        GD.Print($"CardGameUI: Showing round results visual overlay - Winner: {winnerName}, Next Leader: {nextLeaderName}");
+        GD.Print($"CardGameUI: Round results timer will sync with CardManager's end-of-round timer");
         GD.Print($"CardGameUI: Round results panel positioned at top of screen for card visibility");
     }
 
@@ -2529,9 +2611,13 @@ public partial class CardGameUI : Control
 
         roundResultsPanel.Visible = false;
         showingRoundResults = false;
-        roundResultsTimer.Stop();
+        // 🔥 NO TIMER STOP - no timer to stop
 
-        GD.Print("CardGameUI: Round results hidden - visual overlay removed (game already continued)");
+        GD.Print("CardGameUI: Round results hidden - visual overlay removed");
+
+        // 🔥 SAFETY: If this is called by UI timer finishing but CardManager hasn't completed end-of-round yet,
+        // make sure we don't interfere. The CardManager should handle the card cleanup.
+        GD.Print("CardGameUI: Card cleanup will be handled by CardManager's OnEndOfRoundCompleted event");
     }
 
 

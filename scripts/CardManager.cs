@@ -18,7 +18,14 @@ public partial class CardManager : Node
     public int CardsPerHand = 13; // Standard trick-taking game
 
     [Export]
-    public int TargetScore = 100; // Points to win the game
+    public int TargetScore = 10; // Points to win the game
+
+    // Turn state types - NEW
+    public enum TurnState
+    {
+        PlayerTurn,
+        EndOfRound
+    }
 
     // Game state
     public bool GameInProgress { get; private set; } = false;
@@ -26,6 +33,8 @@ public partial class CardManager : Node
     public List<int> PlayerOrder { get; private set; } = new();
     public int CurrentDealer { get; private set; } = 0;
     public int CurrentTrickLeader { get; private set; } = 0;
+    public TurnState CurrentTurnState { get; private set; } = TurnState.PlayerTurn;
+    public int CurrentTrickWinner { get; private set; } = -1; // Store winner during end-of-round
 
     // Card game data
     public List<Card> Deck { get; private set; } = new();
@@ -68,6 +77,12 @@ public partial class CardManager : Node
 
     [Signal]
     public delegate void TrickCompletedEventHandler(int winnerId);
+
+    [Signal]
+    public delegate void EndOfRoundStartedEventHandler(int winnerId);
+
+    [Signal]
+    public delegate void EndOfRoundCompletedEventHandler();
 
     [Signal]
     public delegate void HandCompletedEventHandler();
@@ -169,11 +184,21 @@ public partial class CardManager : Node
             float timeRemaining = (float)(turnTimer?.TimeLeft ?? 0.0f);
             float currentTime = Time.GetTicksMsec() / 1000.0f;
 
-            // 🔥 NEW: For Nakama games, only match owner sends timer updates (throttled)
+            // 🔥 CRITICAL FIX: Don't send timer updates during end-of-round state
+            // This prevents host timer updates from interfering with client end-of-round timers
+            if (CurrentTurnState == TurnState.EndOfRound)
+            {
+                // During end-of-round, only emit local signal, don't sync to clients
+                EmitSignal(SignalName.TurnTimerUpdated, timeRemaining);
+                return;
+            }
+
+            // 🔥 MAJOR FIX: Drastically reduce timer update frequency to prevent spam
             if (matchManager?.HasActiveMatch == true && matchManager.IsLocalPlayerMatchOwner())
             {
-                // Only send timer updates every TimerUpdateInterval to prevent spam
-                if (currentTime - lastTimerUpdateSent >= TimerUpdateInterval)
+                // 🔥 CRITICAL FIX: Only send timer updates every 1 second (not every frame!)
+                float reducedInterval = 1.0f; // Send only once per second
+                if (currentTime - lastTimerUpdateSent >= reducedInterval)
                 {
                     _ = matchManager.SendTimerUpdate(timeRemaining);
                     lastTimerUpdateSent = currentTime;
@@ -582,6 +607,11 @@ public partial class CardManager : Node
         GD.Print("CardManager: HOST dealing cards and syncing to clients");
         GD.Print($"CardManager: HOST using PlayerOrder: [{string.Join(", ", PlayerOrder)}]");
 
+        // 🔥 CRITICAL FIX: Clear pending card plays for new hand
+        // This prevents stale pending plays from blocking auto-forfeit
+        pendingCardPlays.Clear();
+        GD.Print($"CardManager: Cleared pending card plays for new hand");
+
         // Reset deck and shuffle
         InitializeDeck();
         ShuffleDeck();
@@ -641,9 +671,34 @@ public partial class CardManager : Node
         CurrentTrickLeader = 0; // Always start with first player for consistency
         CurrentPlayerTurn = CurrentTrickLeader;
 
-        GD.Print($"CardManager: HOST starting turn - TrickLeader: {CurrentTrickLeader}, CurrentTurn: {CurrentPlayerTurn}, Player: {PlayerOrder[CurrentPlayerTurn]}");
+        GD.Print($"========== NEW HAND STARTING ==========");
+        GD.Print($"CardManager: HOST starting new hand");
+        GD.Print($"CardManager: TrickLeader: {CurrentTrickLeader}, CurrentTurn: {CurrentPlayerTurn}");
+        GD.Print($"CardManager: Turn player: {PlayerOrder[CurrentPlayerTurn]}");
+        GD.Print($"CardManager: Turn state: {CurrentTurnState}");
+        GD.Print($"CardManager: Game in progress: {GameInProgress}");
+        GD.Print($"CardManager: Timer active: {timerActive}");
+        GD.Print($"CardManager: Timer exists: {turnTimer != null}");
+
+        // 🔥 CRITICAL FIX: Ensure turn state is PlayerTurn before starting turn
+        if (CurrentTurnState != TurnState.PlayerTurn)
+        {
+            GD.PrintErr($"CardManager: CRITICAL ERROR - Turn state is {CurrentTurnState} when starting new hand! Forcing to PlayerTurn.");
+            CurrentTurnState = TurnState.PlayerTurn;
+            CurrentTrickWinner = -1;
+        }
+
+        // 🔥 CRITICAL FIX: Stop any lingering timer before starting new hand
+        if (timerActive && turnTimer != null)
+        {
+            GD.Print($"CardManager: Stopping lingering timer before new hand (was active: {timerActive})");
+            turnTimer.Stop();
+            timerActive = false;
+        }
 
         StartTurn();
+
+        GD.Print($"CardManager: ========== NEW HAND STARTED ==========");
     }
 
     /// <summary>
@@ -749,6 +804,11 @@ public partial class CardManager : Node
 
         GD.Print($"CardManager: CLIENT PlayerOrder AFTER sync: [{string.Join(", ", PlayerOrder)}]");
 
+        // 🔥 CRITICAL FIX: Clear pending card plays for new hand on client
+        // This prevents stale pending plays from blocking auto-forfeit  
+        pendingCardPlays.Clear();
+        GD.Print($"CardManager: CLIENT cleared pending card plays for new hand");
+
         // Clear current hands
         PlayerHands.Clear();
         CurrentTrick.Clear();
@@ -797,9 +857,19 @@ public partial class CardManager : Node
     /// </summary>
     private void StartTurn()
     {
+        GD.Print($"CardManager: StartTurn() called - State: {CurrentTurnState}, GameInProgress: {GameInProgress}");
+        GD.Print($"CardManager: CurrentPlayerTurn: {CurrentPlayerTurn}, PlayerOrder.Count: {PlayerOrder.Count}");
+
         if (!GameInProgress || CurrentPlayerTurn >= PlayerOrder.Count)
         {
             GD.PrintErr($"CardManager: Cannot start turn - GameInProgress: {GameInProgress}, CurrentPlayerTurn: {CurrentPlayerTurn}, PlayerOrder.Count: {PlayerOrder.Count}");
+            return;
+        }
+
+        // 🔥 CRITICAL CHECK: Make sure we're in the right turn state
+        if (CurrentTurnState != TurnState.PlayerTurn)
+        {
+            GD.PrintErr($"CardManager: Cannot start player turn - currently in {CurrentTurnState} state");
             return;
         }
 
@@ -818,11 +888,13 @@ public partial class CardManager : Node
             {
                 if (isLocalPlayerTurn)
                 {
-                    GD.Print($"CardManager: NAKAMA CLIENT - managing own player's turn (Player {currentPlayerId})");
-                    // Continue to start timer and allow client to play/auto-forfeit
+                    // 🔥 CORRECTED: Clients CAN start timer for their OWN turns (needed for auto-forfeit)
+                    GD.Print($"CardManager: NAKAMA CLIENT - managing own player's turn timer (Player {currentPlayerId})");
+                    // Continue to start timer and allow client to auto-forfeit themselves
                 }
                 else
                 {
+                    // 🔥 CORRECTED: Only skip timer for OTHER players' turns
                     GD.Print($"CardManager: NAKAMA CLIENT - not my turn, just emitting signal for Player {currentPlayerId}");
                     EmitSignal(SignalName.TurnStarted, currentPlayerId);
                     return;
@@ -891,8 +963,14 @@ public partial class CardManager : Node
         if (turnTimer != null)
         {
             GD.Print($"CardManager: Starting turn timer for player {currentPlayerId}");
+            GD.Print($"CardManager: Timer state before start - exists: {turnTimer != null}, active: {timerActive}, waitTime: {turnTimer?.WaitTime}");
+
+            // 🔥 CRITICAL FIX: Ensure wait time is properly set before starting
+            turnTimer.WaitTime = TurnDuration;
             timerActive = true;
             turnTimer.Start();
+
+            GD.Print($"CardManager: Timer started successfully - duration: {TurnDuration}s, timeLeft: {turnTimer.TimeLeft}, active: {timerActive}");
 
             // 🔥 FIXED: For Nakama games, sync turn start to all instances
             if (matchManager?.HasActiveMatch == true && matchManager.IsLocalPlayerMatchOwner())
@@ -907,6 +985,10 @@ public partial class CardManager : Node
                 GD.Print($"CardManager: Broadcasting turn start to clients via RPC");
                 Rpc(MethodName.NetworkTurnStarted, currentPlayerId);
             }
+        }
+        else
+        {
+            GD.PrintErr($"CardManager: CRITICAL ERROR - turnTimer is null when trying to start timer for player {currentPlayerId}!");
         }
 
         EmitSignal(SignalName.TurnStarted, currentPlayerId);
@@ -1090,11 +1172,12 @@ public partial class CardManager : Node
             string playKey = $"{playerId}_{card}";
             if (pendingCardPlays.Contains(playKey))
             {
-                GD.Print($"CardManager: Duplicate card play prevented - {playKey} already pending");
+                GD.Print($"CardManager: 🚫 Duplicate card play prevented - {playKey} already pending");
+                GD.Print($"CardManager: 🚫 Current pending plays: [{string.Join(", ", pendingCardPlays)}]");
                 return false;
             }
             pendingCardPlays.Add(playKey);
-            GD.Print($"CardManager: Added pending card play: {playKey}");
+            GD.Print($"CardManager: ✅ Added pending card play: {playKey} (total pending: {pendingCardPlays.Count})");
 
             // 🔥 CRITICAL FIX: Both host AND client execute immediately
             // Nakama doesn't echo messages back to sender, so clients must execute locally
@@ -1394,7 +1477,15 @@ public partial class CardManager : Node
         // Award points (1 point per trick)
         PlayerScores[winnerId]++;
 
-        // Update trick leader for next trick
+        // Store winner and enter end-of-round state instead of immediately completing
+        CurrentTrickWinner = winnerId;
+        var oldState = CurrentTurnState;
+        CurrentTurnState = TurnState.EndOfRound;
+
+        var processId = System.Diagnostics.Process.GetCurrentProcess().Id;
+        GD.Print($"CardManager[PID:{processId}]: 🎯 STATE CHANGE: {oldState} → {CurrentTurnState} (winner: {winnerId})");
+
+        // Update trick leader for next trick (but don't start it yet)
         CurrentTrickLeader = PlayerOrder.IndexOf(winnerId);
         CurrentPlayerTurn = CurrentTrickLeader;
 
@@ -1414,19 +1505,132 @@ public partial class CardManager : Node
 
         EmitSignal(SignalName.TrickCompleted, winnerId);
 
-        // Clear current trick
+        // DON'T clear trick or start next turn yet - start end-of-round phase
+        StartEndOfRoundTurn();
+
+        GD.Print($"CardManager: Entered end-of-round state - winner: {winnerId}, 10-second display period started");
+    }
+
+    /// <summary>
+    /// Start the end-of-round turn phase (10 seconds to view results)
+    /// </summary>
+    private void StartEndOfRoundTurn()
+    {
+        var processId = System.Diagnostics.Process.GetCurrentProcess().Id;
+        GD.Print($"CardManager[PID:{processId}]: ========== STARTING END-OF-ROUND TURN ==========");
+        GD.Print($"CardManager[PID:{processId}]: Starting end-of-round turn - winner: {CurrentTrickWinner}");
+        GD.Print($"CardManager[PID:{processId}]: Current turn state: {CurrentTurnState}");
+
+        // Emit signal to show end-of-round display
+        EmitSignal(SignalName.EndOfRoundStarted, CurrentTrickWinner);
+
+        // Use existing timer system for 10-second end-of-round phase
+        if (timerActive)
+        {
+            GD.Print($"CardManager[PID:{processId}]: Stopping existing timer for end-of-round (was active: {timerActive})");
+            turnTimer.Stop();
+        }
+
+        // Check if we should start our own timer or wait for host sync
+        var matchManager = MatchManager.Instance;
+        var gameManager = GameManager.Instance;
+        var networkManager = gameManager?.NetworkManager;
+
+        bool shouldManageOwnTimer = false;
+        string reason = "";
+
+        if (matchManager?.HasActiveMatch == true)
+        {
+            // For Nakama games: all instances manage their own end-of-round timer
+            shouldManageOwnTimer = true;
+            reason = matchManager.IsLocalPlayerMatchOwner() ? "Nakama match owner" : "Nakama client";
+        }
+        else if (networkManager == null || !networkManager.IsConnected)
+        {
+            // Single player or offline
+            shouldManageOwnTimer = true;
+            reason = "Single player/offline";
+        }
+        else if (networkManager.IsHost)
+        {
+            // Traditional network host
+            shouldManageOwnTimer = true;
+            reason = "Traditional network host";
+        }
+        else
+        {
+            // Traditional network client - don't manage timer
+            shouldManageOwnTimer = false;
+            reason = "Traditional network client";
+        }
+
+        GD.Print($"CardManager[PID:{processId}]: Timer management decision: {shouldManageOwnTimer} ({reason})");
+
+        if (shouldManageOwnTimer)
+        {
+            turnTimer.WaitTime = TurnDuration; // Same 10 seconds as regular turns
+            GD.Print($"CardManager[PID:{processId}]: Starting end-of-round timer - Duration: {TurnDuration} seconds");
+            turnTimer.Start();
+            timerActive = true;
+
+            GD.Print($"CardManager[PID:{processId}]: End-of-round timer started successfully - timerActive: {timerActive}, WaitTime: {turnTimer.WaitTime}");
+        }
+        else
+        {
+            GD.Print($"CardManager[PID:{processId}]: Not starting timer - waiting for host sync");
+        }
+
+        // Log sync status
+        if (matchManager?.HasActiveMatch == true)
+        {
+            if (matchManager.IsLocalPlayerMatchOwner())
+            {
+                GD.Print($"CardManager[PID:{processId}]: NAKAMA MATCH OWNER - end-of-round state started");
+            }
+            else
+            {
+                GD.Print($"CardManager[PID:{processId}]: NAKAMA CLIENT - end-of-round state started");
+            }
+        }
+
+        GD.Print($"CardManager[PID:{processId}]: ========== END-OF-ROUND TURN STARTED ==========");
+    }
+
+    /// <summary>
+    /// Complete the end-of-round phase and continue to next trick
+    /// </summary>
+    private void CompleteEndOfRoundTurn()
+    {
+        var processId = System.Diagnostics.Process.GetCurrentProcess().Id;
+        GD.Print($"CardManager[PID:{processId}]: ========== COMPLETING END-OF-ROUND TURN ==========");
+        GD.Print($"CardManager[PID:{processId}]: Completing end-of-round turn - cleaning up trick and continuing");
+        GD.Print($"CardManager[PID:{processId}]: Current trick has {CurrentTrick.Count} cards");
+
+        // Now do the actual trick completion cleanup
         CurrentTrick.Clear();
         TricksPlayed++;
+        CurrentTurnState = TurnState.PlayerTurn;
+        CurrentTrickWinner = -1; // Reset
+
+        GD.Print($"CardManager[PID:{processId}]: Trick cleared, TricksPlayed: {TricksPlayed}, State: {CurrentTurnState}");
+
+        // Emit signal to clean up UI
+        EmitSignal(SignalName.EndOfRoundCompleted);
+        GD.Print($"CardManager[PID:{processId}]: EndOfRoundCompleted signal emitted");
 
         // Check if hand is complete
         if (PlayerHands[PlayerOrder[0]].Count == 0)
         {
+            GD.Print($"CardManager[PID:{processId}]: Hand complete after end-of-round cleanup - calling CompleteHand()");
             CompleteHand();
         }
         else
         {
+            GD.Print($"CardManager[PID:{processId}]: Starting next trick after end-of-round cleanup - calling StartTurn()");
             StartTurn();
         }
+
+        GD.Print($"CardManager[PID:{processId}]: ========== END-OF-ROUND TURN COMPLETED ==========");
     }
 
     /// <summary>
@@ -1447,18 +1651,25 @@ public partial class CardManager : Node
             PlayerScores[winnerId] = winnerScore;
         }
 
-        // Update trick leader and current turn
+        // Store winner and enter end-of-round state (same as host)
+        CurrentTrickWinner = winnerId;
+        CurrentTurnState = TurnState.EndOfRound;
+
+        // Update trick leader and current turn (but don't start yet)
         CurrentTrickLeader = newTrickLeader;
         CurrentPlayerTurn = newCurrentTurn;
 
-        // Clear trick on client
-        CurrentTrick.Clear();
-        TricksPlayed++;
+        // DON'T clear trick yet - wait for end-of-round completion
+        // CurrentTrick.Clear();
+        // TricksPlayed++;
 
         // Emit signal for UI updates
         EmitSignal(SignalName.TrickCompleted, winnerId);
 
-        GD.Print($"CardManager: CLIENT trick synchronized - Leader: {CurrentTrickLeader}, Turn: {CurrentPlayerTurn}");
+        // Start end-of-round phase on client
+        StartEndOfRoundTurn();
+
+        GD.Print($"CardManager: CLIENT trick synchronized and entered end-of-round state - Leader: {CurrentTrickLeader}, Turn: {CurrentPlayerTurn}");
     }
 
     /// <summary>
@@ -1466,6 +1677,18 @@ public partial class CardManager : Node
     /// </summary>
     private void CompleteHand()
     {
+        GD.Print($"========== HAND COMPLETED ==========");
+        GD.Print($"CardManager: Hand completed after {TricksPlayed} tricks");
+
+        // Log current scores
+        foreach (var score in PlayerScores)
+        {
+            GD.Print($"CardManager: Player {score.Key} score: {score.Value}");
+        }
+
+        int maxScore = PlayerScores.Values.Max();
+        GD.Print($"CardManager: Highest score: {maxScore}, Target: {TargetScore}");
+
         EmitSignal(SignalName.HandCompleted);
 
         // Find hand loser (lowest score) for chat intimidation
@@ -1505,12 +1728,20 @@ public partial class CardManager : Node
         // Check for game end
         if (PlayerScores.Values.Max() >= TargetScore)
         {
+            GD.Print($"CardManager: Game ending - player reached target score of {TargetScore}");
             CompleteGame();
         }
         else
         {
+            GD.Print($"CardManager: Game continuing - dealing next hand (no player has {TargetScore} points yet)");
             // Deal next hand
             CurrentDealer = GetNextDealer();
+
+            // 🔥 CRITICAL FIX: Reset turn state for new hand
+            CurrentTurnState = TurnState.PlayerTurn;
+            CurrentTrickWinner = -1;
+
+            GD.Print($"CardManager: New dealer: {CurrentDealer}, Turn state reset to PlayerTurn");
             DealNewHand();
         }
     }
@@ -1520,15 +1751,20 @@ public partial class CardManager : Node
     /// </summary>
     private void CompleteGame()
     {
+        GD.Print($"========== GAME COMPLETED ==========");
+
         // Find overall winner
         int highestScore = PlayerScores.Values.Max();
         int winnerId = PlayerScores.First(kvp => kvp.Value == highestScore).Key;
 
-        GD.Print($"CardManager: Game won by player {winnerId} with {highestScore} points");
+        GD.Print($"CardManager: GAME WON by player {winnerId} with {highestScore} points");
+        GD.Print($"CardManager: Setting GameInProgress = false");
 
         GameInProgress = false;
 
         EmitSignal(SignalName.GameCompleted, winnerId);
+
+        GD.Print($"CardManager: ========== GAME COMPLETED SIGNAL SENT ==========");
     }
 
     /// <summary>
@@ -1546,12 +1782,30 @@ public partial class CardManager : Node
     private void OnTurnTimerExpired()
     {
         var processId = System.Diagnostics.Process.GetCurrentProcess().Id;
+        GD.Print($"CardManager[PID:{processId}]: ⏰ ========== TIMER EXPIRED ==========");
         GD.Print($"CardManager[PID:{processId}]: OnTurnTimerExpired called - timerActive: {timerActive}, GameInProgress: {GameInProgress}");
+        GD.Print($"CardManager[PID:{processId}]: Current turn state: {CurrentTurnState}");
         GD.Print($"CardManager[PID:{processId}]: Current game state - CurrentPlayerTurn: {CurrentPlayerTurn}, PlayerOrder.Count: {PlayerOrder.Count}");
+
+        // 🔥 CORRECTED: Clients can handle timer expiration for THEIR OWN turns
+        // But prevent timer spam by having only host manage authoritative timing
+        // Clients will auto-forfeit themselves, host will auto-forfeit AI players
 
         if (!timerActive || !GameInProgress)
         {
             GD.Print($"CardManager[PID:{processId}]: Timer expired but timerActive={timerActive}, GameInProgress={GameInProgress} - ignoring");
+            return;
+        }
+
+        // 🔥 NEW: Handle end-of-round timer expiration
+        if (CurrentTurnState == TurnState.EndOfRound)
+        {
+            GD.Print($"CardManager[PID:{processId}]: ========== END-OF-ROUND TIMER EXPIRED ==========");
+            GD.Print($"CardManager[PID:{processId}]: End-of-round timer expired - completing end-of-round phase");
+            GD.Print($"CardManager[PID:{processId}]: Current trick winner: {CurrentTrickWinner}");
+            timerActive = false;
+            CompleteEndOfRoundTurn();
+            GD.Print($"CardManager[PID:{processId}]: ========== END-OF-ROUND CLEANUP COMPLETED ==========");
             return;
         }
 
@@ -1597,7 +1851,7 @@ public partial class CardManager : Node
 
             if (matchManager?.HasActiveMatch == true)
             {
-                // For Nakama games: Only auto-forfeit if this is the local player
+                // For Nakama games: Determine who should handle auto-forfeit
                 var nakamaManager = NakamaManager.Instance;
                 var localUserId = nakamaManager?.Session?.UserId;
                 var playerUserId = GetNakamaUserIdForGamePlayer(currentPlayerId);
@@ -1659,7 +1913,20 @@ public partial class CardManager : Node
                     if (!success)
                     {
                         GD.PrintErr($"CardManager[PID:{processId}]: Failed to auto-forfeit card {cardToPlay} for player {currentPlayerId}");
-                        EndTurn(); // Fallback: just end turn if card play fails
+
+                        // 🔥 CRITICAL FIX: Don't call EndTurn() when auto-forfeit fails
+                        // This prevents client from progressing turn locally without syncing to host
+                        // Instead, let the host handle the timeout situation
+                        if (MatchManager.Instance?.HasActiveMatch == true && !MatchManager.Instance.IsLocalPlayerMatchOwner())
+                        {
+                            GD.Print($"CardManager[PID:{processId}]: CLIENT auto-forfeit failed - NOT calling EndTurn() to prevent desync");
+                            // Host will handle this timeout when its timer expires
+                        }
+                        else
+                        {
+                            // Host can still call EndTurn() as fallback
+                            EndTurn();
+                        }
                     }
                     else
                     {
@@ -2050,18 +2317,25 @@ public partial class CardManager : Node
             PlayerScores[winnerId] = winnerScore;
         }
 
-        // Update trick leader and current turn
+        // Store winner and enter end-of-round state (same as host and traditional clients)
+        CurrentTrickWinner = winnerId;
+        CurrentTurnState = TurnState.EndOfRound;
+
+        // Update trick leader and current turn (but don't start yet)
         CurrentTrickLeader = newTrickLeader;
         CurrentPlayerTurn = CurrentTrickLeader;
 
-        // Clear trick on client
-        CurrentTrick.Clear();
-        TricksPlayed++;
+        // DON'T clear trick yet - wait for end-of-round completion
+        // CurrentTrick.Clear();
+        // TricksPlayed++;
 
         // Emit signal for UI updates
         EmitSignal(SignalName.TrickCompleted, winnerId);
 
-        GD.Print($"CardManager[PID:{processId}]: NAKAMA CLIENT - trick completion synchronized - Leader: {CurrentTrickLeader}, Turn: {CurrentPlayerTurn}");
+        // Start end-of-round phase on Nakama client
+        StartEndOfRoundTurn();
+
+        GD.Print($"CardManager[PID:{processId}]: NAKAMA CLIENT - trick completion synchronized and entered end-of-round state - Leader: {CurrentTrickLeader}, Turn: {CurrentPlayerTurn}");
     }
 
     /// <summary>
@@ -2070,6 +2344,7 @@ public partial class CardManager : Node
     /// <param name="timeRemaining">Time remaining in seconds</param>
     private void OnNakamaTimerUpdateReceived(float timeRemaining)
     {
+        var processId = System.Diagnostics.Process.GetCurrentProcess().Id;
         var matchManager = MatchManager.Instance;
 
         // Only clients should sync timer updates from match owner
@@ -2078,10 +2353,17 @@ public partial class CardManager : Node
             return; // Match owner doesn't need to sync its own timer updates
         }
 
+        // 🔥 CRITICAL FIX: Don't sync timer updates during end-of-round state
+        // The client is managing its own end-of-round timer and shouldn't be interrupted
+        if (CurrentTurnState == TurnState.EndOfRound)
+        {
+            GD.Print($"CardManager[PID:{processId}]: IGNORING timer update during end-of-round state (timeRemaining: {timeRemaining:F1}s)");
+            return;
+        }
+
         // Only log timer sync occasionally to avoid spam (clients now manage their own timers)
         if (timeRemaining <= 1.0f || (timeRemaining % 5.0f < 0.2f))
         {
-            var processId = System.Diagnostics.Process.GetCurrentProcess().Id;
             GD.Print($"CardManager[PID:{processId}]: Client timer synced to: {timeRemaining:F1}s");
         }
 
@@ -2134,6 +2416,14 @@ public partial class CardManager : Node
             // Validate the turn index is within bounds
             if (currentPlayerTurn >= 0 && currentPlayerTurn < PlayerOrder.Count)
             {
+                // 🔥 CRITICAL FIX: Force reset turn state - client may be stuck in EndOfRound
+                if (CurrentTurnState != TurnState.PlayerTurn)
+                {
+                    GD.Print($"CardManager[PID:{processId}]: 🔄 FORCE RESET - Client stuck in {CurrentTurnState}, resetting to PlayerTurn for new turn");
+                    CurrentTurnState = TurnState.PlayerTurn;
+                    CurrentTrickWinner = -1; // Clear end-of-round data
+                }
+
                 // Update local game state
                 int previousTurn = CurrentPlayerTurn;
                 CurrentPlayerTurn = currentPlayerTurn;
@@ -2148,7 +2438,8 @@ public partial class CardManager : Node
 
                 if (isOurTurn)
                 {
-                    GD.Print($"CardManager[PID:{processId}]: NAKAMA CLIENT - this is our turn, calling StartTurn() to manage timer");
+                    // 🔥 CORRECTED: Clients DO start timers for their own turns (needed for auto-forfeit)
+                    GD.Print($"CardManager[PID:{processId}]: NAKAMA CLIENT - this is our turn, calling StartTurn() to manage own timer");
                     StartTurn();
                 }
                 else
@@ -2240,6 +2531,10 @@ public partial class CardManager : Node
                     GD.Print($"CardManager[PID:{processId}]: Available PlayerHands keys: [{string.Join(", ", PlayerHands.Keys)}]");
                 }
             }
+
+            // 🔥 CRITICAL FIX: Clear pending card plays for Nakama clients too
+            pendingCardPlays.Clear();
+            GD.Print($"CardManager[PID:{processId}]: NAKAMA CLIENT cleared pending card plays for new hand");
 
             if (anyHandsUpdated)
             {

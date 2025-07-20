@@ -104,7 +104,7 @@ public partial class PlayerData : Resource
         // Linear interpolation: 20% + (level - 1) * (60% / 9)
         float coverage = 0.2f + (ThrowPower - 1) * (0.6f / 9.0f);
 
-        GD.Print($"PlayerData: ThrowPower level {ThrowPower} -> {coverage:P1} coverage");
+        // 🔥 REMOVED: Excessive logging that caused infinite spam
         return coverage;
     }
 
@@ -118,7 +118,7 @@ public partial class PlayerData : Resource
         // Linear interpolation: 110 + (level - 1) * (50 / 9)
         float speed = 110.0f + (MoveSpeed - 1) * (50.0f / 9.0f);
 
-        GD.Print($"PlayerData: MoveSpeed level {MoveSpeed} -> {speed:F1} px/s");
+        // 🔥 REMOVED: Excessive logging that caused infinite spam
         return speed;
     }
 
@@ -132,7 +132,7 @@ public partial class PlayerData : Resource
         // Linear interpolation: 1.0 - (level - 1) * (0.5 / 9)
         float blurStrength = 1.0f - (Composure - 1) * (0.5f / 9.0f);
 
-        GD.Print($"PlayerData: Composure level {Composure} -> {blurStrength:P1} blur strength");
+        // 🔥 REMOVED: Excessive logging that caused infinite spam
         return blurStrength;
     }
 
@@ -148,7 +148,7 @@ public partial class PlayerData : Resource
         // PRD: XP_to_next = 50 × level²
         int xpRequired = 50 * currentLevel * currentLevel;
 
-        GD.Print($"PlayerData: Level {currentLevel} -> {currentLevel + 1} requires {xpRequired} XP");
+        // 🔥 REMOVED: Excessive logging that caused infinite spam
         return xpRequired;
     }
 
