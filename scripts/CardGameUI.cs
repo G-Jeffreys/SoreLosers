@@ -57,7 +57,7 @@ public partial class CardGameUI : Control
     // Sink cloud animation system - NEW
     private bool sinkCloudOnCooldown = false;
     private const float SinkCloudCooldownDuration = 1.5f; // 1.5 seconds as requested
-    private const float SinkCloudAnimationDuration = 0.5f; // 0.5 seconds as requested
+    private const float SinkCloudAnimationDuration = 1.0f; // 1.0 seconds - doubled from original 0.5f
 
     // Current player's cards
     private List<Card> currentPlayerCards = new();
@@ -137,6 +137,15 @@ public partial class CardGameUI : Control
     // Track last trick state to avoid unnecessary updates
     private int lastTrickCount = -1;
     private List<CardPlay> lastTrickState = new();
+
+    // Round results display system - NEW
+    private Panel roundResultsPanel;
+    private Label roundResultsLabel;
+    private Label roundResultsTimerLabel;
+    private Timer roundResultsTimer;
+    private bool showingRoundResults = false;
+    private float roundResultsTimeRemaining = 0.0f;
+    private const float RoundResultsDisplayDuration = 10.0f; // 10 seconds as requested
 
     public override void _Ready()
     {
@@ -267,6 +276,9 @@ public partial class CardGameUI : Control
         // 🔥 NEW: Initialize chat shrinking timer system
         InitializeChatTimer();
 
+        // 🔥 NEW: Initialize round results display system
+        InitializeRoundResultsDisplay();
+
         // Connect to game systems
         ConnectToGameSystems();
 
@@ -354,8 +366,23 @@ public partial class CardGameUI : Control
 
         var gameState = cardManager.GetGameState();
 
-        // Clear existing trick cards using the dedicated method
+        // DEFENSIVE: Ensure trick area is completely clear before adding new cards
         ClearTrickDisplay();
+
+        // DEFENSIVE: Verify area is actually clear
+        int remainingCards = 0;
+        foreach (Node child in trickArea.GetChildren())
+        {
+            if (child.Name.ToString().StartsWith("TrickCard"))
+            {
+                remainingCards++;
+            }
+        }
+
+        if (remainingCards > 0)
+        {
+            GD.PrintErr($"CardGameUI: WARNING - {remainingCards} trick cards still present after clear! This may cause duplicates.");
+        }
 
         // Add actual card graphics for current trick
         if (gameState.CurrentTrick.Count > 0)
@@ -364,7 +391,7 @@ public partial class CardGameUI : Control
             // TrickArea is 200x100, cards are 100x140, so we'll arrange them clearly separated
             float cardWidth = trickCardSize.X;
             float cardHeight = trickCardSize.Y;
-            float overlapSpacing = 20; // TRICK CARDS: No overlap - clear separation between cards (20px gap)
+            float overlapSpacing = 110; // TRICK CARDS: Full card width + 10px gap for clear separation (no overlap)
 
             // Calculate total width needed and center position
             float totalWidthNeeded = (gameState.CurrentTrick.Count - 1) * overlapSpacing + cardWidth;
@@ -375,8 +402,27 @@ public partial class CardGameUI : Control
             for (int i = 0; i < gameState.CurrentTrick.Count; i++)
             {
                 var cardPlay = gameState.CurrentTrick[i];
+
+                // DEFENSIVE: Check for duplicate cards before adding
+                string cardName = $"TrickCard_{i}";
+                bool cardAlreadyExists = false;
+                foreach (Node child in trickArea.GetChildren())
+                {
+                    if (child.Name.ToString() == cardName)
+                    {
+                        cardAlreadyExists = true;
+                        break;
+                    }
+                }
+
+                if (cardAlreadyExists)
+                {
+                    GD.PrintErr($"CardGameUI: Skipping duplicate card {cardName} - {cardPlay.Card} (P{cardPlay.PlayerId})");
+                    continue;
+                }
+
                 var cardButton = CreateTrickCardButton(cardPlay.Card, cardPlay.PlayerId);
-                cardButton.Name = $"TrickCard_{i}";
+                cardButton.Name = cardName;
 
                 // Position cards in a compact fan arrangement
                 Vector2 cardPos = new Vector2(startX + i * overlapSpacing, cardY);
@@ -388,25 +434,42 @@ public partial class CardGameUI : Control
                 cardButton.Size = trickCardSize;
                 cardButton.CustomMinimumSize = trickCardSize;
                 cardButton.CallDeferred(Control.MethodName.SetSize, trickCardSize);
+
+                GD.Print($"CardGameUI: Added trick card {i}: {cardPlay.Card} (P{cardPlay.PlayerId}) at position {cardPos}");
             }
 
-            // Only log when trick actually updates, not every frame
-            GD.Print($"CardGameUI: Updated trick display with {gameState.CurrentTrick.Count} cards");
+            // Enhanced logging to debug duplicate issues
+            var cardList = string.Join(", ", gameState.CurrentTrick.Select(cp => $"{cp.Card} (P{cp.PlayerId})"));
+            GD.Print($"CardGameUI: Updated trick display with {gameState.CurrentTrick.Count} cards: [{cardList}]");
+            GD.Print($"CardGameUI: Current trick leader: {cardManager.CurrentTrickLeader}, Current turn: {cardManager.CurrentPlayerTurn}");
         }
     }
 
     /// <summary>
-    /// Clear the trick display
+    /// Clear the trick display - FIXED for immediate removal
     /// </summary>
     private void ClearTrickDisplay()
     {
+        GD.Print($"CardGameUI: ClearTrickDisplay called - removing all TrickCard nodes");
+
+        // Get all trick card children first
+        var trickCards = new List<Node>();
         foreach (Node child in trickArea.GetChildren())
         {
             if (child.Name.ToString().StartsWith("TrickCard"))
             {
-                child.QueueFree();
+                trickCards.Add(child);
             }
         }
+
+        // Remove them immediately, not deferred
+        foreach (Node card in trickCards)
+        {
+            trickArea.RemoveChild(card);
+            card.QueueFree(); // Still queue for proper cleanup, but remove from parent immediately
+        }
+
+        GD.Print($"CardGameUI: Cleared {trickCards.Count} trick cards immediately");
     }
 
     /// <summary>
@@ -1680,7 +1743,30 @@ public partial class CardGameUI : Control
     /// <param name="winnerId">Player who won the trick</param>
     private void OnTrickCompleted(int winnerId)
     {
+        GD.Print($"CardGameUI: ========== TRICK COMPLETED ==========");
         GD.Print($"CardGameUI: Player {winnerId} won the trick");
+
+        // Log current trick state before cleanup
+        if (cardManager != null)
+        {
+            var gameState = cardManager.GetGameState();
+            var cardList = string.Join(", ", gameState.CurrentTrick.Select(cp => $"{cp.Card} (P{cp.PlayerId})"));
+            GD.Print($"CardGameUI: Completed trick had {gameState.CurrentTrick.Count} cards: [{cardList}]");
+            GD.Print($"CardGameUI: Next trick leader will be: {winnerId}");
+        }
+
+        // Show round results overlay (non-blocking visual display)
+        if (cardManager != null)
+        {
+            // Get the next trick leader (winner of this trick leads next trick)
+            int nextLeaderId = winnerId;
+
+            // Show round results with 10-second countdown (visual overlay only)
+            ShowRoundResults(winnerId, nextLeaderId);
+        }
+
+        // CRITICAL: Always do immediate cleanup so game logic can continue
+        GD.Print($"CardGameUI: Starting immediate trick cleanup...");
 
         // Clear trick area using the dedicated method
         ClearTrickDisplay();
@@ -1691,6 +1777,9 @@ public partial class CardGameUI : Control
 
         // Update scores if needed
         UpdateScoreDisplay();
+
+        GD.Print("CardGameUI: Trick cleanup completed immediately - game can continue");
+        GD.Print($"CardGameUI: ========== TRICK COMPLETED END ==========");
     }
 
     /// <summary>
@@ -2285,6 +2374,180 @@ public partial class CardGameUI : Control
             GD.Print("CardGameUI: Chat activity detected - resetting shrink timer");
             StartChatShrinkTimer();
         }
+    }
+
+    /// <summary>
+    /// Initialize the round results display system
+    /// </summary>
+    private void InitializeRoundResultsDisplay()
+    {
+        GD.Print("CardGameUI: Initializing round results display system");
+
+        // Create round results panel (initially hidden)
+        roundResultsPanel = new Panel();
+        roundResultsPanel.Name = "RoundResultsPanel";
+        roundResultsPanel.Visible = false;
+
+        // Position in upper portion of screen so cards are visible below
+        roundResultsPanel.AnchorLeft = 0.5f;
+        roundResultsPanel.AnchorTop = 0.0f;
+        roundResultsPanel.AnchorRight = 0.5f;
+        roundResultsPanel.AnchorBottom = 0.0f;
+        roundResultsPanel.OffsetLeft = -200;
+        roundResultsPanel.OffsetTop = 100;  // 100px from top instead of center
+        roundResultsPanel.OffsetRight = 200;
+        roundResultsPanel.OffsetBottom = 200; // 100px height
+
+        // Style the panel
+        var styleBox = new StyleBoxFlat();
+        styleBox.BgColor = new Color(0.2f, 0.2f, 0.3f, 0.95f); // Semi-transparent dark blue
+        styleBox.BorderWidthTop = 3;
+        styleBox.BorderWidthBottom = 3;
+        styleBox.BorderWidthLeft = 3;
+        styleBox.BorderWidthRight = 3;
+        styleBox.BorderColor = new Color(0.8f, 0.8f, 0.9f, 1.0f); // Light border
+        styleBox.CornerRadiusTopLeft = 10;
+        styleBox.CornerRadiusTopRight = 10;
+        styleBox.CornerRadiusBottomLeft = 10;
+        styleBox.CornerRadiusBottomRight = 10;
+        roundResultsPanel.AddThemeStyleboxOverride("panel", styleBox);
+
+        // Create VBox container for text layout
+        var vbox = new VBoxContainer();
+        vbox.AnchorLeft = 0.0f;
+        vbox.AnchorTop = 0.0f;
+        vbox.AnchorRight = 1.0f;
+        vbox.AnchorBottom = 1.0f;
+        vbox.OffsetLeft = 20;
+        vbox.OffsetTop = 20;
+        vbox.OffsetRight = -20;
+        vbox.OffsetBottom = -20;
+        roundResultsPanel.AddChild(vbox);
+
+        // Create main results label
+        roundResultsLabel = new Label();
+        roundResultsLabel.Name = "RoundResultsLabel";
+        roundResultsLabel.HorizontalAlignment = HorizontalAlignment.Center;
+        roundResultsLabel.VerticalAlignment = VerticalAlignment.Center;
+        roundResultsLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        roundResultsLabel.AddThemeColorOverride("font_color", new Color(1.0f, 1.0f, 1.0f, 1.0f)); // White text
+        roundResultsLabel.AddThemeFontSizeOverride("font_size", 18);
+        vbox.AddChild(roundResultsLabel);
+
+        // Add spacer
+        var spacer = new Control();
+        spacer.CustomMinimumSize = new Vector2(0, 20);
+        vbox.AddChild(spacer);
+
+        // Create timer label
+        roundResultsTimerLabel = new Label();
+        roundResultsTimerLabel.Name = "RoundResultsTimerLabel";
+        roundResultsTimerLabel.HorizontalAlignment = HorizontalAlignment.Center;
+        roundResultsTimerLabel.VerticalAlignment = VerticalAlignment.Center;
+        roundResultsTimerLabel.AddThemeColorOverride("font_color", new Color(0.8f, 0.8f, 1.0f, 1.0f)); // Light blue text
+        roundResultsTimerLabel.AddThemeFontSizeOverride("font_size", 16);
+        vbox.AddChild(roundResultsTimerLabel);
+
+        // Create timer for countdown updates
+        roundResultsTimer = new Timer();
+        roundResultsTimer.WaitTime = 1.0f; // Update every second
+        roundResultsTimer.Autostart = false;
+        roundResultsTimer.Timeout += OnRoundResultsTimerTick;
+        AddChild(roundResultsTimer);
+
+        // Add panel to main UI (on top of everything)
+        AddChild(roundResultsPanel);
+
+        GD.Print("CardGameUI: Round results display system initialized");
+    }
+
+    /// <summary>
+    /// Handle round results timer tick (countdown)
+    /// </summary>
+    private void OnRoundResultsTimerTick()
+    {
+        if (!showingRoundResults) return;
+
+        // Decrease countdown by 1 second
+        roundResultsTimeRemaining -= 1.0f;
+
+        GD.Print($"CardGameUI: Round results timer tick - {roundResultsTimeRemaining}s remaining");
+
+        if (roundResultsTimeRemaining <= 0.0f)
+        {
+            // Time's up - hide results
+            GD.Print("CardGameUI: Round results timer finished - hiding results");
+            HideRoundResults();
+        }
+        else
+        {
+            // Update countdown display
+            int secondsLeft = Mathf.CeilToInt(roundResultsTimeRemaining);
+            roundResultsTimerLabel.Text = $"Next round starting in {secondsLeft} seconds...";
+        }
+    }
+
+    /// <summary>
+    /// Show round results with winner and next player info
+    /// </summary>
+    /// <param name="winnerId">Player who won the round</param>
+    /// <param name="nextLeaderId">Player who will lead the next round</param>
+    private void ShowRoundResults(int winnerId, int nextLeaderId)
+    {
+        if (roundResultsPanel == null || gameManager == null) return;
+
+        // Get player names
+        string winnerName = GetPlayerName(winnerId);
+        string nextLeaderName = GetPlayerName(nextLeaderId);
+
+        // Set results text
+        roundResultsLabel.Text = $"🏆 {winnerName} won the round!\n\n🎯 {nextLeaderName} will start the next round";
+
+        // Initialize countdown
+        roundResultsTimeRemaining = RoundResultsDisplayDuration;
+        int secondsLeft = Mathf.CeilToInt(roundResultsTimeRemaining);
+        roundResultsTimerLabel.Text = $"Next round starting in {secondsLeft} seconds...";
+
+        // Show panel
+        roundResultsPanel.Visible = true;
+        showingRoundResults = true;
+
+        // Start repeating 1-second timer for countdown updates
+        roundResultsTimer.Start();
+
+        GD.Print($"CardGameUI: Showing round results visual overlay - Winner: {winnerName}, Next Leader: {nextLeaderName}, Duration: {RoundResultsDisplayDuration}s");
+        GD.Print($"CardGameUI: Round results is visual-only overlay - game logic continues immediately");
+        GD.Print($"CardGameUI: Round results panel positioned at top of screen for card visibility");
+    }
+
+    /// <summary>
+    /// Hide round results and continue game
+    /// </summary>
+    private void HideRoundResults()
+    {
+        if (roundResultsPanel == null) return;
+
+        roundResultsPanel.Visible = false;
+        showingRoundResults = false;
+        roundResultsTimer.Stop();
+
+        GD.Print("CardGameUI: Round results hidden - visual overlay removed (game already continued)");
+    }
+
+
+
+    /// <summary>
+    /// Get player name from ID, with fallback to "Player X"
+    /// </summary>
+    /// <param name="playerId">Player ID</param>
+    /// <returns>Player name</returns>
+    private string GetPlayerName(int playerId)
+    {
+        if (gameManager?.ConnectedPlayers?.ContainsKey(playerId) == true)
+        {
+            return gameManager.ConnectedPlayers[playerId].PlayerName ?? $"Player {playerId}";
+        }
+        return $"Player {playerId}";
     }
 
     /// <summary>
@@ -3534,6 +3797,7 @@ public partial class CardGameUI : Control
         StartGameWithSeed(synchronizedSeed);
     }
 }
+
 
 
 

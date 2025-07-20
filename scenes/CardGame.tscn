@@ -435,26 +435,31 @@ horizontal_alignment = 1
 layout_mode = 2
 text = "DEBUG: Test Egg Effect"
 tooltip_text = "Applies egg throwing effect to local player for testing"
+visible = false
 
 [node name="DebugChatGrowthButton" type="Button" parent="PlayersInfoPanel"]
 layout_mode = 2
 text = "DEBUG: Test Chat Growth"
 tooltip_text = "Directly tests chat panel growth (4x size)"
+visible = false
 
 [node name="DebugHandCompletedButton" type="Button" parent="PlayersInfoPanel"]
 layout_mode = 2
 text = "DEBUG: Simulate Hand Complete"
 tooltip_text = "Simulates OnHandCompleted event firing"
+visible = false
 
 [node name="DebugChatShrinkButton" type="Button" parent="PlayersInfoPanel"]
 layout_mode = 2
 text = "DEBUG: Shrink Chat"
 tooltip_text = "Tests chat panel shrinking back to normal size"
+visible = false
 
 [node name="DebugCleanEggsButton" type="Button" parent="PlayersInfoPanel"]
 layout_mode = 2
 text = "DEBUG: Clean Egg Effects"
 tooltip_text = "Tests cleaning egg visual effects from screen"
+visible = false
 
 [node name="ChatPanel" type="Panel" parent="."]
 layout_mode = 1
