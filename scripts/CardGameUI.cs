@@ -2553,7 +2553,7 @@ public partial class CardGameUI : Control
         };
 
         // Load the homogenous cloud texture asset
-        var cloudTexture = GD.Load<Texture2D>("res://assets/sabotage/Homogenous_cloud_of_...-543408979-0-2.png");
+        var cloudTexture = GD.Load<Texture2D>("res://assets/sabotage/Homogenous_cloud_of_...-348841060-0-2.png");
         if (cloudTexture == null)
         {
             GD.PrintErr("DEBUG: Failed to load Homogenous_cloud PNG - falling back to gray panel");
