@@ -70,12 +70,12 @@ The game should be easy to pick up in one session, run on modest hardware, and s
 
 ### 5.3  Dual-View System
 * **Card Table View**: Traditional card game interface with hand, timer, scores
-* **Kitchen View**: Top-down movement with WASD controls, item interaction
+* **Kitchen View**: Top-down movement with arrow key controls, item interaction
 * **Seamless Switching**: UI instantly transitions between views when changing location
 * **Location Status**: Clear indication whether player is "At Table" or "In Kitchen"
 
 ### 5.4  Real-Time Movement & Sabotage (In Kitchen)
-* **Movement:** WASD (or arrows) in a small top‑down room.  
+* **Movement:** Arrow keys in a small top‑down room.  
 * **Interact (Space):** pick up items, drop bombs, wash face.  
 * **Items spawn** at preset props (egg tray, drinks bar).  
 * **Physics:** KinematicBody2D move & projectile arcs.

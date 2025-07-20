@@ -95,7 +95,7 @@
 - **Other managers** may need autoload configuration
 
 ### Input Mapping
-- **Movement keys** (WASD/Arrow keys)
+- **Movement keys** (Arrow keys)
 - **Interaction key** (Space)
 - **UI navigation** (Tab, Enter, Escape)
 - **Card playing** (mouse clicks)

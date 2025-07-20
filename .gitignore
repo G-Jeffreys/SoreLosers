@@ -54,6 +54,9 @@ bld/
 [Oo]bj/
 [Ll]og/
 
+# Application builds directory
+builds/
+
 # Backup files
 *.backup
 *.tmp

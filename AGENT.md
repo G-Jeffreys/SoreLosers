@@ -159,7 +159,7 @@
 - **Table Presence Validation**: Cards can only be played when at table
 
 ### Movement & Sabotage
-- **Player Movement**: WASD movement in kitchen area
+- **Player Movement**: Arrow key movement in kitchen area
 - **Item Interaction**: Egg collection, sink washing, stink bomb pickup
 - **Sabotage Framework**: Complete egg throwing and stink bomb systems
 - **Real-time Actions**: Sabotage actions work concurrent with card game

@@ -168,7 +168,7 @@ public partial class MainMenuUI : Control
 
         // Create info label
         var infoLabel = new Label();
-        infoLabel.Text = "Enter the 6-character room code provided by the host player.\nExample: ABC123";
+        infoLabel.Text = "Enter the 6-character room code provided by the host player.";
         infoLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         infoLabel.Size = new Vector2(350, 40);
         infoLabel.Position = new Vector2(25, 90);

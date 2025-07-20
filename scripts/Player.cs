@@ -137,14 +137,14 @@ public partial class Player : CharacterBody2D
     }
 
     /// <summary>
-    /// Handle WASD movement input for top-down gameplay
+    /// Handle arrow key movement input for top-down gameplay
     /// </summary>
     /// <param name="delta">Frame delta time</param>
     private void HandleMovement(double delta)
     {
         Vector2 velocity = Velocity;
 
-        // Get input direction (WASD or arrow keys)
+        // Get input direction (arrow keys)
         Vector2 inputDirection = Input.GetVector("ui_left", "ui_right", "ui_up", "ui_down");
 
         // Apply movement based on input

@@ -902,13 +902,13 @@ float blur = playerData.GetBlurStrength();            // 100-50%
 **Purpose**: Real-time player controller for sabotage phase
 
 #### Core Responsibilities
-- Top-down WASD movement
+- Top-down arrow key movement
 - Item interaction and pickup
 - Sabotage action execution
 - Physics-based movement
 
 #### Movement System
-- **Input**: WASD or arrow keys
+- **Input**: Arrow keys
 - **Physics**: CharacterBody2D with velocity-based movement
 - **Speed**: Based on MoveSpeed stat (110-160 px/s)
 - **Collision**: Proper physics collision detection

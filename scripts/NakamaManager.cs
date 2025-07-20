@@ -17,10 +17,10 @@ public partial class NakamaManager : Node
     public static NakamaManager Instance { get; private set; }
 
     // Nakama connection configuration
-    [Export] public string ServerKey = "sorelosers_server_key";
-    [Export] public string Host = "127.0.0.1";  // Use Heroic Cloud URL for production
+    [Export] public string ServerKey = "defaultkey";  // Fixed: Nakama default server key
+    [Export] public string Host = "159.223.189.139";  // Your DigitalOcean production server ($6/month!)
     [Export] public int Port = 7350;
-    [Export] public bool UseSSL = false;  // Set true for Heroic Cloud
+    [Export] public bool UseSSL = false;  // DigitalOcean server uses HTTP
 
     // Nakama client components
     public IClient Client { get; private set; }
@@ -182,8 +182,10 @@ public partial class NakamaManager : Node
             // 🎮 Generate room code first for match creation
             var roomCode = GenerateRoomCode();
 
-            // Create regular match - we'll use a different discovery method
-            var match = await Socket.CreateMatchAsync();
+            // Create match with proper name - Nakama requires match name parameter
+            var matchName = $"sorelosers_{roomCode}";
+            GD.Print($"NakamaManager: Creating match with name: {matchName}");
+            var match = await Socket.CreateMatchAsync(matchName);
 
             if (match != null)
             {
