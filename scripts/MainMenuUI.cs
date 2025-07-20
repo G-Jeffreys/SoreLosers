@@ -39,6 +39,44 @@ public partial class MainMenuUI : Control
         {
             GD.Print("MainMenuUI: MatchManager autoload found successfully");
         }
+
+        // 🔥 NEW: Proactively start authentication in background for better UX
+        // This way when user clicks Host/Join, they don't have to wait
+        CallDeferred(nameof(StartBackgroundAuthentication));
+    }
+
+    /// <summary>
+    /// Start authentication in background when main menu loads
+    /// This prevents the 15-second wait when user first clicks Host/Join
+    /// </summary>
+    private async void StartBackgroundAuthentication()
+    {
+        GD.Print("MainMenuUI: Starting background authentication...");
+
+        if (nakama != null && !nakama.IsAuthenticated)
+        {
+            try
+            {
+                // Generate a unique device ID for this session
+                var deviceId = System.Guid.NewGuid().ToString();
+                GD.Print($"MainMenuUI: Background authentication with device ID: {deviceId}");
+
+                var success = await nakama.AuthenticateAsync(deviceId);
+
+                if (success)
+                {
+                    GD.Print("MainMenuUI: Background authentication completed successfully!");
+                }
+                else
+                {
+                    GD.Print("MainMenuUI: Background authentication failed - user will see connection dialog when needed");
+                }
+            }
+            catch (Exception ex)
+            {
+                GD.Print($"MainMenuUI: Background authentication error (non-critical): {ex.Message}");
+            }
+        }
     }
 
     /// <summary>
@@ -516,16 +554,20 @@ public partial class MainMenuUI : Control
     // Button event handlers
     private void _on_host_button_pressed()
     {
+        GD.Print("=== HOST BUTTON PRESSED ===");
         GD.Print("Host button pressed - creating Nakama match");
+        GD.Print($"MainMenuUI: Nakama status - Instance: {nakama != null}, Authenticated: {nakama?.IsAuthenticated}, Connected: {nakama?.IsConnected}");
 
         if (nakama == null || !nakama.IsAuthenticated)
         {
+            GD.Print("MainMenuUI: Nakama not ready - starting connection process...");
             ConnectToNakama();
             // Wait for connection, then create match
             CallDeferred(nameof(DelayedCreateMatch));
         }
         else
         {
+            GD.Print("MainMenuUI: Nakama already authenticated - creating match immediately!");
             CreateMatch();
         }
     }
@@ -533,7 +575,8 @@ public partial class MainMenuUI : Control
     private async void DelayedCreateMatch()
     {
         // Wait for authentication to complete with disposal checks
-        for (int i = 0; i < 50; i++) // Wait up to 5 seconds
+        // INCREASED TIMEOUT: 15 seconds (was 5) to handle Nakama auth + socket connection
+        for (int i = 0; i < 150; i++) // Wait up to 15 seconds (150 * 100ms)
         {
             // 🔥 CRITICAL: Check if this object has been disposed/freed
             if (!IsInstanceValid(this) || IsQueuedForDeletion())
@@ -544,9 +587,18 @@ public partial class MainMenuUI : Control
 
             if (nakama?.IsAuthenticated == true)
             {
+                GD.Print($"MainMenuUI: Authentication completed after {i * 100}ms - creating match");
                 CreateMatch();
                 return;
             }
+
+            // Update connection dialog every second to show progress
+            if (connectionStatus != null && i % 10 == 0) // Every 1 second
+            {
+                var elapsed = i / 10;
+                connectionStatus.Text = $"🔄 Connecting to Nakama servers...\nPlease wait... ({elapsed}/15 seconds)";
+            }
+
             await Task.Delay(100);
         }
 
@@ -557,7 +609,7 @@ public partial class MainMenuUI : Control
             return;
         }
 
-        ShowErrorDialog("Connection Timeout", "Could not connect to servers in time. Please try again.");
+        ShowErrorDialog("Connection Timeout", "Could not connect to servers in time (15 seconds). Please try again.\n\nThis can happen if:\n• Your internet connection is slow\n• The game servers are under high load\n• Firewall is blocking the connection");
     }
 
     private void _on_join_button_pressed()
@@ -605,7 +657,8 @@ public partial class MainMenuUI : Control
     private async void DelayedShowJoinDialog()
     {
         // Wait for authentication to complete with disposal checks
-        for (int i = 0; i < 50; i++) // Wait up to 5 seconds
+        // INCREASED TIMEOUT: 15 seconds (was 5) to handle Nakama auth + socket connection
+        for (int i = 0; i < 150; i++) // Wait up to 15 seconds (150 * 100ms)
         {
             // 🔥 CRITICAL: Check if this object has been disposed/freed
             if (!IsInstanceValid(this) || IsQueuedForDeletion())
@@ -616,9 +669,18 @@ public partial class MainMenuUI : Control
 
             if (nakama?.IsAuthenticated == true)
             {
+                GD.Print($"MainMenuUI: Authentication completed after {i * 100}ms - showing join dialog");
                 ShowJoinDialog();
                 return;
             }
+
+            // Update connection dialog every second to show progress
+            if (connectionStatus != null && i % 10 == 0) // Every 1 second
+            {
+                var elapsed = i / 10;
+                connectionStatus.Text = $"🔄 Connecting to Nakama servers...\nPlease wait... ({elapsed}/15 seconds)";
+            }
+
             await Task.Delay(100);
         }
 
@@ -630,7 +692,7 @@ public partial class MainMenuUI : Control
         }
 
         // If authentication failed, show error and still allow join attempt
-        ShowErrorDialog("Connection Timeout", "Could not connect to servers in time. You can still try entering a room code.");
+        ShowErrorDialog("Connection Timeout", "Could not connect to servers in time (15 seconds). You can still try entering a room code.");
         CallDeferred(nameof(ShowJoinDialog));
     }
 
