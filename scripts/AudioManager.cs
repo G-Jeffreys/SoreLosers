@@ -37,12 +37,13 @@ public partial class AudioManager : Node
     // Audio stream cache for performance
     private Dictionary<string, AudioStream> audioStreamCache = new();
 
-    // Music tracks paths - using the existing Sneaky Snitch and placeholder system
+    // Music tracks paths - using OGG format for best Godot compatibility
     private readonly Dictionary<string, string> musicTracks = new()
     {
-        ["sneaky_snitch"] = "res://audio/music/Sneaky Snitch.mp3",
-        ["menu_music"] = "res://assets/audio/music/menu_background.ogg",
-        ["gameplay_music"] = "res://assets/audio/music/gameplay_background.ogg"
+        ["sneaky_snitch"] = "res://audio/music/Sneaky Snitch.ogg"
+        // Note: menu_background and gameplay_background are placeholder files - commented out until real audio added
+        // ["menu_music"] = "res://assets/audio/music/menu_background.ogg",
+        // ["gameplay_music"] = "res://assets/audio/music/gameplay_background.ogg"
     };
 
     // SFX paths - using existing audio assets
@@ -50,10 +51,11 @@ public partial class AudioManager : Node
     {
         ["button_click"] = "res://assets/audio/sfx/button_click.wav",
         ["card_place"] = "res://assets/audio/sfx/card_place.wav",
-        ["card_shuffle"] = "res://assets/audio/sfx/card_shuffle.wav",
-        ["egg_splat"] = "res://assets/audio/sfx/egg_splat.ogg",
-        ["stink_bomb"] = "res://assets/audio/sfx/stink_bomb.ogg",
-        ["footstep"] = "res://assets/audio/sfx/footstep.ogg"
+        ["card_shuffle"] = "res://assets/audio/sfx/card_shuffle.wav"
+        // Note: egg_splat, stink_bomb, footstep are placeholder files - commented out until real audio added
+        // ["egg_splat"] = "res://assets/audio/sfx/egg_splat.ogg",
+        // ["stink_bomb"] = "res://assets/audio/sfx/stink_bomb.ogg",
+        // ["footstep"] = "res://assets/audio/sfx/footstep.ogg"
     };
 
     // Events for audio system communication
@@ -307,6 +309,20 @@ public partial class AudioManager : Node
         // Start new track on inactive player
         inactiveMusicPlayer.Stream = newTrack;
         inactiveMusicPlayer.VolumeDb = -80.0f; // Start silent
+
+        // 🔥 CRITICAL FIX: Ensure background music loops in both dev and build environments
+        // This programmatically sets looping regardless of import settings
+        if (newTrack is AudioStreamOggVorbis oggStream && EnableLooping)
+        {
+            oggStream.Loop = true;
+            GD.Print("AudioManager: ✅ Programmatically enabled looping for OGG stream (crossfade)");
+        }
+        else if (newTrack is AudioStreamMP3 mp3Stream && EnableLooping)
+        {
+            mp3Stream.Loop = true;
+            GD.Print("AudioManager: ✅ Programmatically enabled looping for MP3 stream (crossfade)");
+        }
+
         inactiveMusicPlayer.Play();
 
         // Create tweener for crossfade
@@ -333,7 +349,25 @@ public partial class AudioManager : Node
 
         activeMusicPlayer.Stream = track;
         activeMusicPlayer.VolumeDb = 0.0f;
+
+        // 🔥 CRITICAL FIX: Ensure background music loops in both dev and build environments
+        // This programmatically sets looping regardless of import settings
+        if (track is AudioStreamOggVorbis oggStream && EnableLooping)
+        {
+            oggStream.Loop = true;
+            GD.Print("AudioManager: ✅ Programmatically enabled looping for OGG stream");
+        }
+        else if (track is AudioStreamMP3 mp3Stream && EnableLooping)
+        {
+            mp3Stream.Loop = true;
+            GD.Print("AudioManager: ✅ Programmatically enabled looping for MP3 stream");
+        }
+
         activeMusicPlayer.Play();
+
+        // Update state variables
+        currentBackgroundMusic = track;
+        isPlayingBackgroundMusic = true;
 
         GD.Print("AudioManager: Started background music directly");
     }
@@ -419,11 +453,17 @@ public partial class AudioManager : Node
     {
         if (!audioStreamCache.ContainsKey(soundName))
         {
-            GD.Print($"AudioManager: SFX '{soundName}' not found in cache (might be placeholder)");
+            GD.Print($"AudioManager: 🔇 SFX '{soundName}' not found in cache (might be placeholder file) - skipping");
             return;
         }
 
         var stream = audioStreamCache[soundName];
+        if (stream == null)
+        {
+            GD.Print($"AudioManager: 🔇 SFX '{soundName}' stream is null - skipping");
+            return;
+        }
+
         var player = soundName.Contains("button") || soundName.Contains("ui") ? uiSfxPlayer : sfxPlayer;
 
         player.Stream = stream;
@@ -440,7 +480,7 @@ public partial class AudioManager : Node
 
         player.Play();
 
-        GD.Print($"AudioManager: Played SFX: {soundName}");
+        GD.Print($"AudioManager: 🔊 Played SFX: {soundName}");
     }
 
     /// <summary>
@@ -463,9 +503,9 @@ public partial class AudioManager : Node
 
         // Set bus volumes
         AudioServer.SetBusVolumeDb(masterBusIdx, masterDb);
-        AudioServer.SetBusVolumeDb(musicBusIdx, musicDb);
-        AudioServer.SetBusVolumeDb(sfxBusIdx, sfxDb);
-        AudioServer.SetBusVolumeDb(uiBusIdx, sfxDb); // UI uses same as SFX
+        if (musicBusIdx >= 0) AudioServer.SetBusVolumeDb(musicBusIdx, musicDb);
+        if (sfxBusIdx >= 0) AudioServer.SetBusVolumeDb(sfxBusIdx, sfxDb);
+        if (uiBusIdx >= 0) AudioServer.SetBusVolumeDb(uiBusIdx, sfxDb); // UI uses same as SFX
 
         EmitSignal(SignalName.VolumeChanged, MasterVolume, MusicVolume, SFXVolume);
 
