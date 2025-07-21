@@ -24,7 +24,7 @@ public partial class SabotageManager : Node
     public float StinkBombWarningTime = 0.8f; // 0.8 second warning from PRD
 
     [Export]
-    public int MaxEggsInInventory = 3; // Up to 3 eggs from PRD
+    public int MaxEggsInInventory = 3; // DEPRECATED: Now level-based via PlayerData.GetMaxEggsInInventory() (Level 1: 3 eggs, Level N: 2+N eggs)
 
     [Export]
     public float EggProjectileSpeed = 500.0f; // Egg throwing speed

@@ -22,9 +22,9 @@ public partial class UIManager : Node
     [Export]
     public UIState CurrentUIState { get; private set; } = UIState.MainMenu;
 
-    // Chat system (intimidation feature from PRD)
+    // Chat system (intimidation feature from PRD) - DISABLED
     [Export]
-    public float ChatGrowthMultiplier = 1.5f; // How much chat grows when losing
+    public float ChatGrowthMultiplier = 1.0f; // Chat growth DISABLED - was 1.5f
 
     [Export]
     public float ChatShrinkDelay = 30.0f; // 30s delay before chat shrinks

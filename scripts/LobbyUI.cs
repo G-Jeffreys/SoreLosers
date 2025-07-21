@@ -4,6 +4,7 @@ using System;
 /// <summary>
 /// Handles lobby UI for both host and client waiting states
 /// Shows connected players, room code, and start game functionality
+/// Displays comprehensive game instructions in the left panel
 /// </summary>
 public partial class LobbyUI : Control
 {
@@ -12,6 +13,9 @@ public partial class LobbyUI : Control
     private VBoxContainer playerList;
     private Button startGameButton;
     private Button backButton;
+
+    // Game instructions UI elements
+    private RichTextLabel instructionsText;
 
     public override void _Ready()
     {
@@ -22,6 +26,12 @@ public partial class LobbyUI : Control
         startGameButton = GetNode<Button>("VBoxContainer/ButtonContainer/StartGameButton");
         backButton = GetNode<Button>("VBoxContainer/ButtonContainer/BackButton");
 
+        // Get reference to game instructions panel
+        instructionsText = GetNode<RichTextLabel>("GameInstructionsPanel/InstructionsVBox/InstructionsText");
+
+        // Initialize game instructions
+        SetupGameInstructions();
+
         // Set initial state based on game phase
         UpdateLobbyState();
 
@@ -30,6 +40,58 @@ public partial class LobbyUI : Control
         {
             GameManager.Instance.PlayerJoined += OnPlayerJoined;
             GameManager.Instance.PlayerLeft += OnPlayerLeft;
+        }
+    }
+
+    /// <summary>
+    /// Setup the comprehensive game instructions text
+    /// </summary>
+    private void SetupGameInstructions()
+    {
+        GD.Print("LobbyUI: Setting up game instructions");
+
+        // Comprehensive game rules based on the actual implementation
+        string instructions = @"[font_size=12][b]OBJECTIVE:[/b]
+Win tricks to score points. First player to reach 10 points wins!
+
+[b]SETUP:[/b]
+• 2-4 players (AI fills empty slots)
+• Standard 52-card deck
+• 13 cards dealt per player
+
+[b]TRICK-TAKING RULES:[/b]
+1. [b]Follow Suit:[/b] Must play same suit as first card if you have it
+2. [b]Highest Wins:[/b] Highest card of the led suit wins the trick
+3. [b]Turn Timer:[/b] 10 seconds per turn - play fast!
+4. [b]Scoring:[/b] Win a trick = 1 point
+
+[b]CONCURRENT GAMEPLAY:[/b]
+5. [b]Leave Table:[/b] Click ""Leave Table"" to gather sabotage items
+6. [b]Miss Turns:[/b] Away from table? You'll miss your turn (no penalty)
+7. [b]Return Anytime:[/b] Click ""Return to Table"" to rejoin card play
+
+[b]SABOTAGE SYSTEM:[/b]
+8. [b]Egg Throwing:[/b] Collect eggs, throw at opponents to obstruct their view
+9. [b]Wash Off:[/b] Use sink to clean egg splatter effects
+
+[b]VICTORY CONDITIONS:[/b]
+• [b]Win Game:[/b] First to 10 points wins overall
+• [b]XP Rewards:[/b] Gain experience for winning tricks and rounds
+• [b]Chat Intimidation:[/b] Losing players get enlarged chat panels
+
+[b]STRATEGY TIPS:[/b]
+• Balance card play with sabotage gathering
+• Time your table departures carefully
+• Use movement to disrupt opponents during their turns[/font_size]";
+
+        if (instructionsText != null)
+        {
+            instructionsText.Text = instructions;
+            GD.Print("LobbyUI: Game instructions populated successfully");
+        }
+        else
+        {
+            GD.PrintErr("LobbyUI: Failed to find InstructionsText node!");
         }
     }
 

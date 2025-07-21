@@ -209,7 +209,7 @@ public partial class TestScene : Node
         {
             return sabotageManager.StinkBombRadius == 160.0f &&
                    sabotageManager.SabotageEffectDuration == 30.0f &&
-                   sabotageManager.MaxEggsInInventory == 3;
+                   sabotageManager.MaxEggsInInventory == 3; // NOTE: Egg inventory is now level-based via PlayerData.GetMaxEggsInInventory()
         });
     }
 

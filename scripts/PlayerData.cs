@@ -95,45 +95,79 @@ public partial class PlayerData : Resource
     // Stat calculation methods based on PRD specifications
 
     /// <summary>
-    /// Calculate actual throw power coverage percentage (20% at level 1, 80% at level 10)
+    /// Calculate actual throw power coverage percentage (20%/50%/80% for levels 1/2/3)
     /// </summary>
     /// <returns>Coverage percentage as float (0.2 to 0.8)</returns>
     public float GetThrowPowerCoverage()
     {
-        // PRD: 20% at level 1, 80% at level 10
-        // Linear interpolation: 20% + (level - 1) * (60% / 9)
-        float coverage = 0.2f + (ThrowPower - 1) * (0.6f / 9.0f);
+        // REDESIGNED: Levels 1-3 with much more impactful progression for shorter games
+        // Level 1: 20%, Level 2: 50%, Level 3: 80% (+30% per level)
+        float coverage = ThrowPower switch
+        {
+            1 => 0.2f,   // 20% coverage (baseline)
+            2 => 0.5f,   // 50% coverage (+30% absolute)
+            3 => 0.8f,   // 80% coverage (+30% absolute)
+            _ => 0.8f + (ThrowPower - 3) * 0.02f  // Fallback for levels 4+ (much smaller gains)
+        };
 
-        // 🔥 REMOVED: Excessive logging that caused infinite spam
         return coverage;
     }
 
     /// <summary>
-    /// Calculate actual movement speed in pixels per second (110 at level 1, 160 at level 10)
+    /// Calculate actual movement speed in pixels per second (80/110/140 for levels 1/2/3)
     /// </summary>
     /// <returns>Movement speed in pixels per second</returns>
     public float GetMovementSpeed()
     {
-        // PRD: 110 px/s at level 1, 160 px/s at level 10
-        // Linear interpolation: 110 + (level - 1) * (50 / 9)
-        float speed = 110.0f + (MoveSpeed - 1) * (50.0f / 9.0f);
+        // REDESIGNED: Levels 1-3 with much more impactful progression for shorter games
+        // Level 1: 80 px/s, Level 2: 110 px/s, Level 3: 140 px/s (+30 px/s per level)
+        float speed = MoveSpeed switch
+        {
+            1 => 80.0f,   // Baseline
+            2 => 110.0f,  // +30 px/s (37.5% increase)
+            3 => 140.0f,  // +30 px/s (27% increase)
+            _ => 140.0f + (MoveSpeed - 3) * 5.0f  // Fallback for levels 4+ (much smaller gains)
+        };
 
-        // 🔥 REMOVED: Excessive logging that caused infinite spam
         return speed;
     }
 
     /// <summary>
-    /// Calculate blur strength multiplier (100% at level 1, 50% at level 10)
+    /// Calculate blur strength multiplier (100%/75%/50% for levels 1/2/3)
     /// </summary>
     /// <returns>Blur strength multiplier (0.5 to 1.0)</returns>
     public float GetBlurStrength()
     {
-        // PRD: 100% blur at level 1, 50% blur at level 10
-        // Linear interpolation: 1.0 - (level - 1) * (0.5 / 9)
-        float blurStrength = 1.0f - (Composure - 1) * (0.5f / 9.0f);
+        // REDESIGNED: Levels 1-3 with much more impactful progression for shorter games
+        // Level 1: 100% blur, Level 2: 75% blur, Level 3: 50% blur (-25% per level)
+        float blurStrength = Composure switch
+        {
+            1 => 1.0f,   // 100% blur (most vulnerable)
+            2 => 0.75f,  // 75% blur (-25% absolute)
+            3 => 0.5f,   // 50% blur (-25% absolute, strong resistance)
+            _ => 0.5f - (Composure - 3) * 0.05f  // Fallback for levels 4+ (much smaller gains)
+        };
 
-        // 🔥 REMOVED: Excessive logging that caused infinite spam
-        return blurStrength;
+        return Math.Max(blurStrength, 0.2f); // Minimum 20% blur to maintain some effect
+    }
+
+    /// <summary>
+    /// Calculate maximum number of eggs a player can carry based on ThrowPower level
+    /// Level 1: 3 eggs, Level 2: 4 eggs, Level N: 2 + N eggs
+    /// </summary>
+    /// <returns>Maximum eggs in inventory</returns>
+    public int GetMaxEggsInInventory()
+    {
+        // Formula: 2 + ThrowPower level
+        // Level 1: 2 + 1 = 3 eggs (baseline)
+        // Level 2: 2 + 2 = 4 eggs (+1 per level)
+        // Level 3: 2 + 3 = 5 eggs (+1 per level)
+        // Level 10: 2 + 10 = 12 eggs (max possible)
+        int maxEggs = 2 + ThrowPower;
+
+        GD.Print($"PlayerData: ThrowPower Level {ThrowPower} allows {maxEggs} max eggs in inventory");
+
+        return maxEggs;
     }
 
     // XP and leveling system methods
@@ -164,13 +198,19 @@ public partial class PlayerData : Resource
         ThrowPowerXP += xp;
         TotalXP += xp;
 
-        // Check for level up
-        if (ThrowPower < 10 && ThrowPowerXP >= GetXPRequiredForLevel(ThrowPower))
+        // Check for level up (capped at level 3 for shorter games)
+        if (ThrowPower < 3 && ThrowPowerXP >= GetXPRequiredForLevel(ThrowPower))
         {
+            int oldThrowPower = ThrowPower;
+            int oldMaxEggs = GetMaxEggsInInventory(); // Calculate before leveling up
+
             ThrowPowerXP -= GetXPRequiredForLevel(ThrowPower);
             ThrowPower++;
 
+            int newMaxEggs = GetMaxEggsInInventory(); // Calculate after leveling up
+
             GD.Print($"PlayerData: ThrowPower leveled up to {ThrowPower}!");
+            GD.Print($"🥚 EGG CAPACITY INCREASED: You can now carry {newMaxEggs} eggs (was {oldMaxEggs})!");
             return true;
         }
 
@@ -189,8 +229,8 @@ public partial class PlayerData : Resource
         MoveSpeedXP += xp;
         TotalXP += xp;
 
-        // Check for level up
-        if (MoveSpeed < 10 && MoveSpeedXP >= GetXPRequiredForLevel(MoveSpeed))
+        // Check for level up (capped at level 3 for shorter games)
+        if (MoveSpeed < 3 && MoveSpeedXP >= GetXPRequiredForLevel(MoveSpeed))
         {
             MoveSpeedXP -= GetXPRequiredForLevel(MoveSpeed);
             MoveSpeed++;
@@ -214,8 +254,8 @@ public partial class PlayerData : Resource
         ComposureXP += xp;
         TotalXP += xp;
 
-        // Check for level up
-        if (Composure < 10 && ComposureXP >= GetXPRequiredForLevel(Composure))
+        // Check for level up (capped at level 3 for shorter games)
+        if (Composure < 3 && ComposureXP >= GetXPRequiredForLevel(Composure))
         {
             ComposureXP -= GetXPRequiredForLevel(Composure);
             Composure++;

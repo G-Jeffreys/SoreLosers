@@ -27,6 +27,7 @@ public partial class CardGameUI : Control
     // Stats panels UI elements (realtime phase) - MODIFIED: Only ThrowPower & MoveSpeed visible
     private Panel leftStatsPanel;  // Shows: Player name, Total XP, ThrowPower, MoveSpeed
     private Panel rightStatsPanel; // HIDDEN: Game statistics not shown to players
+    private Panel leftInstructionsPanel; // Game rules panel - hidden during realtime phase
     private Label playerNameLabel;
     private Label totalXPLabel;
     private Label throwPowerLabel;
@@ -104,6 +105,7 @@ public partial class CardGameUI : Control
     // 🔥 NEW: Nakama lobby UI elements
     private Label nakamaLobbyLabel;
     private Button nakamaStartButton;
+    private Button nakamaLeaveButton;
     private VBoxContainer nakamaPlayersList;
     private Label nakamaStatusLabel;
     private LineEdit nakamaNameInput;
@@ -612,6 +614,12 @@ public partial class CardGameUI : Control
             rightStatsPanel.Visible = false; // Always hidden - no game stats shown to players
         }
 
+        // 🔥 HIDE GAME RULES: Instructions panel is hidden during realtime phase (kitchen view)
+        if (leftInstructionsPanel != null)
+        {
+            leftInstructionsPanel.Visible = !shouldShowPanels; // Opposite of stats panels - shown during card table, hidden during kitchen
+        }
+
         var playerData = gameManager.LocalPlayer;
 
         // Update left panel - Player stats and progression
@@ -838,6 +846,7 @@ public partial class CardGameUI : Control
         cardManager.HandCompleted += OnHandCompleted;
         cardManager.HandDealt += OnHandDealt;
         cardManager.TurnTimerUpdated += OnTurnTimerUpdated;
+        cardManager.GameCompleted += OnGameCompleted; // NEW: Game over state
 
         // 🔥 NEW: Connect to MatchManager for Nakama integration
         var matchManager = MatchManager.Instance;
@@ -1192,6 +1201,10 @@ public partial class CardGameUI : Control
         if (chatPanel != null)
             chatPanel.Visible = true;
 
+        // Show round results panel if it should be showing
+        if (roundResultsPanel != null && showingRoundResults)
+            roundResultsPanel.Visible = true;
+
         GD.Print("CardGameUI: Showing card table view with full UI");
     }
 
@@ -1208,6 +1221,10 @@ public partial class CardGameUI : Control
             playersInfoContainer.Visible = false;
         if (chatPanel != null)
             chatPanel.Visible = false;
+
+        // Hide round results panel during realtime phase
+        if (roundResultsPanel != null)
+            roundResultsPanel.Visible = false;
 
         GD.Print("CardGameUI: Showing kitchen view (realtime phase) - card game UI hidden");
     }
@@ -1663,6 +1680,11 @@ public partial class CardGameUI : Control
                     if (success)
                     {
                         GD.Print($"CardGameUI: Successfully played {card}");
+
+                        // Play card place sound effect
+                        var audioManager = gameManager?.AudioManager;
+                        audioManager?.PlaySFX("card_place");
+
                         // Card will be removed from hand via CardManager events
                     }
                     else
@@ -1930,6 +1952,25 @@ public partial class CardGameUI : Control
 
         // Wait for new hand to be dealt
         // UpdatePlayerHand will be called when new hand starts
+    }
+
+    /// <summary>
+    /// Handle game completed event - show congratulations message for winner
+    /// </summary>
+    /// <param name="winnerId">Player who won the game</param>
+    private void OnGameCompleted(int winnerId)
+    {
+        GD.Print($"CardGameUI: ========== GAME COMPLETED ==========");
+        GD.Print($"CardGameUI: Game completed - Winner: {winnerId}");
+
+        // Get winner's name
+        string winnerName = GetPlayerName(winnerId);
+        GD.Print($"CardGameUI: Winner name: {winnerName}");
+
+        // Show congratulations overlay
+        ShowGameOverOverlay(winnerName);
+
+        GD.Print($"CardGameUI: ========== GAME COMPLETED DISPLAY SHOWN ==========");
     }
 
     /// <summary>
@@ -2311,10 +2352,15 @@ public partial class CardGameUI : Control
     }
 
     /// <summary>
-    /// Apply chat panel growth effect
+    /// Apply chat panel growth effect - DISABLED
     /// </summary>
     private void ApplyChatPanelGrowth(float multiplier)
     {
+        GD.Print($"CardGameUI: Chat growth DISABLED - ignoring growth request (multiplier: {multiplier:F1}x)");
+
+        // DISABLED: Chat growth feature temporarily disabled
+        return;
+
         if (chatPanel == null)
         {
             GD.PrintErr("CardGameUI: Cannot apply chat growth - chatPanel is null!");
@@ -2591,13 +2637,23 @@ public partial class CardGameUI : Control
             roundResultsTimerLabel.Text = "Next round starting soon...";
         }
 
-        // Show panel
-        roundResultsPanel.Visible = true;
+        // Set the flag that round results should be showing
         showingRoundResults = true;
+
+        // Only show panel if we're currently at the card table view
+        // If player is in kitchen, it will show when they return to table
+        if (cardTableView != null && cardTableView.Visible)
+        {
+            roundResultsPanel.Visible = true;
+            GD.Print($"CardGameUI: Showing round results visual overlay - Winner: {winnerName}, Next Leader: {nextLeaderName}");
+        }
+        else
+        {
+            GD.Print($"CardGameUI: Round results ready to show when player returns to table - Winner: {winnerName}, Next Leader: {nextLeaderName}");
+        }
 
         // 🔥 NO TIMER START - CardManager handles all timing via TurnTimerUpdated signal
 
-        GD.Print($"CardGameUI: Showing round results visual overlay - Winner: {winnerName}, Next Leader: {nextLeaderName}");
         GD.Print($"CardGameUI: Round results timer will sync with CardManager's end-of-round timer");
         GD.Print($"CardGameUI: Round results panel positioned at top of screen for card visibility");
     }
@@ -2620,7 +2676,63 @@ public partial class CardGameUI : Control
         GD.Print("CardGameUI: Card cleanup will be handled by CardManager's OnEndOfRoundCompleted event");
     }
 
+    /// <summary>
+    /// Show game over overlay with congratulations message
+    /// </summary>
+    /// <param name="winnerName">Name of the player who won</param>
+    private void ShowGameOverOverlay(string winnerName)
+    {
+        GD.Print($"CardGameUI: Showing game over overlay for winner: {winnerName}");
 
+        // Create game over panel
+        var gameOverPanel = new Panel();
+        gameOverPanel.Name = "GameOverPanel";
+
+        // Position in center of screen covering everything
+        gameOverPanel.AnchorLeft = 0.0f;
+        gameOverPanel.AnchorTop = 0.0f;
+        gameOverPanel.AnchorRight = 1.0f;
+        gameOverPanel.AnchorBottom = 1.0f;
+        gameOverPanel.OffsetLeft = 0;
+        gameOverPanel.OffsetTop = 0;
+        gameOverPanel.OffsetRight = 0;
+        gameOverPanel.OffsetBottom = 0;
+
+        // Style the panel with semi-transparent background
+        var styleBox = new StyleBoxFlat();
+        styleBox.BgColor = new Color(0.0f, 0.0f, 0.0f, 0.8f); // Semi-transparent black
+        gameOverPanel.AddThemeStyleboxOverride("panel", styleBox);
+
+        // Create congratulations label
+        var congratsLabel = new Label();
+        congratsLabel.Name = "CongratsLabel";
+        congratsLabel.Text = $"Congratulations!\n{winnerName} won!";
+        congratsLabel.HorizontalAlignment = HorizontalAlignment.Center;
+        congratsLabel.VerticalAlignment = VerticalAlignment.Center;
+        congratsLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+
+        // Position label in center
+        congratsLabel.AnchorLeft = 0.0f;
+        congratsLabel.AnchorTop = 0.0f;
+        congratsLabel.AnchorRight = 1.0f;
+        congratsLabel.AnchorBottom = 1.0f;
+        congratsLabel.OffsetLeft = 0;
+        congratsLabel.OffsetTop = 0;
+        congratsLabel.OffsetRight = 0;
+        congratsLabel.OffsetBottom = 0;
+
+        // Style the text with large font and bright color
+        congratsLabel.AddThemeColorOverride("font_color", new Color(1.0f, 0.9f, 0.2f, 1.0f)); // Golden yellow
+        congratsLabel.AddThemeFontSizeOverride("font_size", 48); // Large text
+
+        // Add label to panel
+        gameOverPanel.AddChild(congratsLabel);
+
+        // Add panel to main UI (on top of everything)
+        AddChild(gameOverPanel);
+
+        GD.Print("CardGameUI: Game over overlay displayed successfully");
+    }
 
     /// <summary>
     /// Get player name from ID, with fallback to "Player X"
@@ -3296,6 +3408,7 @@ public partial class CardGameUI : Control
             cardManager.HandCompleted -= OnHandCompleted;
             cardManager.HandDealt -= OnHandDealt;
             cardManager.TurnTimerUpdated -= OnTurnTimerUpdated;
+            cardManager.GameCompleted -= OnGameCompleted; // NEW: Game over state
         }
     }
 
@@ -3505,6 +3618,15 @@ public partial class CardGameUI : Control
     /// </summary>
     private void InitializeNakamaLobbyUI()
     {
+        // Prevent duplicate initialization
+        if (nakamaLobbyLabel != null)
+        {
+            Console.WriteLine("[CardGameUI] Nakama lobby UI already initialized - skipping duplicate initialization.");
+            return;
+        }
+
+        Console.WriteLine("[CardGameUI] Initializing complete Nakama lobby UI...");
+
         // Create lobby UI elements dynamically and add them to the players info container
 
         // Lobby title label
@@ -3514,7 +3636,10 @@ public partial class CardGameUI : Control
         nakamaLobbyLabel.AddThemeStyleboxOverride("normal", new StyleBoxFlat());
         playersInfoContainer.AddChild(nakamaLobbyLabel);
 
-        // 🔥 NEW: Name editing section
+        // Create game instructions panel on the LEFT side (not in playersInfoContainer)
+        CreateLeftSideInstructionsPanel();
+
+        // Name editing section
         nakamaNameLabel = new Label();
         nakamaNameLabel.Text = "Your Name:";
         nakamaNameLabel.HorizontalAlignment = HorizontalAlignment.Left;
@@ -3536,7 +3661,6 @@ public partial class CardGameUI : Control
                 : $"Player_{nakama.Session.UserId.Substring(0, 8)}";
             nakamaNameInput.Text = currentName;
         }
-
         playersInfoContainer.AddChild(nakamaNameInput);
 
         // Add spacing
@@ -3556,17 +3680,120 @@ public partial class CardGameUI : Control
         nakamaPlayersList.Name = "NakamaPlayersList";
         playersInfoContainer.AddChild(nakamaPlayersList);
 
-        // Start game button (only visible for match owner)
+        // Start Game button (only for host)
         nakamaStartButton = new Button();
-        nakamaStartButton.Text = "Start Game";
-        nakamaStartButton.SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter;
+        nakamaStartButton.Text = "Start Match";
+        nakamaStartButton.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
         nakamaStartButton.Pressed += OnNakamaStartButtonPressed;
         playersInfoContainer.AddChild(nakamaStartButton);
+
+        // Leave Match button
+        nakamaLeaveButton = new Button();
+        nakamaLeaveButton.Text = "Leave Match";
+        nakamaLeaveButton.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        nakamaLeaveButton.Pressed += OnNakamaLeaveButtonPressed;
+        playersInfoContainer.AddChild(nakamaLeaveButton);
 
         // Hide lobby UI initially
         HideNakamaLobby();
 
-        GD.Print("CardGameUI: Nakama lobby UI elements created with name editing");
+        Console.WriteLine("[CardGameUI] Complete Nakama lobby UI initialized with all elements.");
+    }
+
+    /// <summary>
+    /// Creates the game instructions panel on the left side of the screen using negative space
+    /// </summary>
+    private void CreateLeftSideInstructionsPanel()
+    {
+        Console.WriteLine("[CardGameUI] Creating left-side game instructions panel...");
+
+        // Create the instructions panel as a child of the main CardGame Control
+        leftInstructionsPanel = new Panel();
+        leftInstructionsPanel.Name = "LeftGameInstructionsPanel";
+
+        // Position on the LEFT side using negative space
+        // Left side coordinates: x=20 to x=350, centered vertically
+        leftInstructionsPanel.AnchorLeft = 0.0f;
+        leftInstructionsPanel.AnchorRight = 0.0f;
+        leftInstructionsPanel.AnchorTop = 0.5f;
+        leftInstructionsPanel.AnchorBottom = 0.5f;
+        leftInstructionsPanel.OffsetLeft = 20.0f;        // 20px from left edge
+        leftInstructionsPanel.OffsetRight = 350.0f;      // 350px wide
+        leftInstructionsPanel.OffsetTop = -300.0f;       // 300px above center
+        leftInstructionsPanel.OffsetBottom = 300.0f;     // 300px below center (600px total height)
+
+        // Add panel style for visibility
+        var styleBox = new StyleBoxFlat();
+        styleBox.BgColor = new Color(0.0f, 0.0f, 0.0f, 0.8f); // Semi-transparent black background
+        styleBox.CornerRadiusTopLeft = 10;
+        styleBox.CornerRadiusTopRight = 10;
+        styleBox.CornerRadiusBottomLeft = 10;
+        styleBox.CornerRadiusBottomRight = 10;
+        styleBox.BorderColor = new Color(1.0f, 1.0f, 1.0f, 0.5f); // White border
+        styleBox.BorderWidthLeft = 2;
+        styleBox.BorderWidthRight = 2;
+        styleBox.BorderWidthTop = 2;
+        styleBox.BorderWidthBottom = 2;
+        leftInstructionsPanel.AddThemeStyleboxOverride("panel", styleBox);
+
+        // Create VBox container for organizing content
+        var instructionsVBox = new VBoxContainer();
+        instructionsVBox.Name = "InstructionsContent";
+        instructionsVBox.AnchorLeft = 0.0f;
+        instructionsVBox.AnchorRight = 1.0f;
+        instructionsVBox.AnchorTop = 0.0f;
+        instructionsVBox.AnchorBottom = 1.0f;
+        instructionsVBox.OffsetLeft = 15.0f;
+        instructionsVBox.OffsetTop = 15.0f;
+        instructionsVBox.OffsetRight = -15.0f;
+        instructionsVBox.OffsetBottom = -15.0f;
+        leftInstructionsPanel.AddChild(instructionsVBox);
+
+        // Title label
+        var titleLabel = new Label();
+        titleLabel.Text = "🃏 GAME RULES";
+        titleLabel.HorizontalAlignment = HorizontalAlignment.Center;
+        titleLabel.AddThemeStyleboxOverride("normal", new StyleBoxFlat());
+        instructionsVBox.AddChild(titleLabel);
+
+        // Separator
+        var separator = new HSeparator();
+        instructionsVBox.AddChild(separator);
+
+        // Game instructions text using RichTextLabel for better formatting
+        var instructionsText = new RichTextLabel();
+        instructionsText.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
+        instructionsText.FitContent = true;
+        instructionsText.BbcodeEnabled = true;
+
+        // Comprehensive game rules
+        string gameRules = "[font_size=11][b]OBJECTIVE:[/b]\n" +
+                          "Win tricks to score points. First to reach 10 points wins!\n\n" +
+                          "[b]SETUP:[/b]\n" +
+                          "• 2-4 players (AI fills empty slots)\n" +
+                          "• Standard 52-card deck, 13 cards each\n\n" +
+                          "[b]TRICK-TAKING RULES:[/b]\n" +
+                          "1. [b]Follow Suit:[/b] Must play same suit as first card\n" +
+                          "2. [b]Highest Wins:[/b] Highest card of led suit wins\n" +
+                          "3. [b]Turn Timer:[/b] 10 seconds per turn - play fast!\n" +
+                          "4. [b]Scoring:[/b] Win a trick = 1 point\n\n" +
+                          "[b]CONCURRENT GAMEPLAY:[/b]\n" +
+                          "5. [b]Leave Table:[/b] Click \"Leave Table\" to gather items\n" +
+                          "6. [b]Kitchen Phase:[/b] Collect eggs and sabotage items\n" +
+                          "7. [b]Return:[/b] Interact with table to rejoin\n\n" +
+                          "[b]SABOTAGE SYSTEM:[/b]\n" +
+                          "8. [b]Egg Throwing:[/b] Splatter opponent's screen\n" +
+                          "9. [b]Washing:[/b] Use sink to clean effects\n\n" +
+                          "[b]VICTORY:[/b]\n" +
+                          "First player to 10 points wins the match!";
+
+        instructionsText.Text = gameRules;
+        instructionsVBox.AddChild(instructionsText);
+
+        // Add the panel to the main CardGame control (not the playersInfoContainer)
+        AddChild(leftInstructionsPanel);
+
+        Console.WriteLine("[CardGameUI] Left-side game instructions panel created and positioned in negative space.");
     }
 
     /// <summary>
@@ -3576,6 +3803,21 @@ public partial class CardGameUI : Control
     {
         GD.Print("🔥 CardGameUI: Nakama start button CLICKED! Processing...");
         CallDeferred(nameof(OnNakamaStartGamePressed));
+    }
+
+    /// <summary>
+    /// Handle Nakama leave button pressed
+    /// </summary>
+    private void OnNakamaLeaveButtonPressed()
+    {
+        GD.Print("🔥 CardGameUI: Nakama leave button CLICKED! Leaving match...");
+        // Add logic to leave the current Nakama match
+        var nakama = NakamaManager.Instance;
+        if (nakama != null)
+        {
+            _ = nakama.DisconnectAsync();
+        }
+        GetTree().ChangeSceneToFile("res://scenes/MainMenu.tscn");
     }
 
     /// <summary>

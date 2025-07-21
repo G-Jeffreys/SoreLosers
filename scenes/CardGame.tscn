@@ -92,7 +92,7 @@ offset_bottom = -50.0
 grow_horizontal = 2
 grow_vertical = 0
 
-[node name="ScoreTimerPanel" type="VBoxContainer" parent="CardTableView/GameArea"]
+[node name="ScoreTimerPanel" type="HBoxContainer" parent="CardTableView/GameArea"]
 layout_mode = 1
 anchors_preset = 0
 anchor_left = 0.0
@@ -101,18 +101,22 @@ anchor_right = 0.0
 anchor_bottom = 0.0
 offset_left = 20.0
 offset_top = 20.0
-offset_right = 200.0
-offset_bottom = 100.0
+offset_right = 250.0
+offset_bottom = 60.0
 
 [node name="ScoreLabel" type="Label" parent="CardTableView/GameArea/ScoreTimerPanel"]
 layout_mode = 2
 text = "Score: 0"
 vertical_alignment = 1
 
+[node name="TimerLabelText" type="Label" parent="CardTableView/GameArea/ScoreTimerPanel"]
+layout_mode = 2
+text = "Timer:"
+vertical_alignment = 1
+
 [node name="TimerLabel" type="Label" parent="CardTableView/GameArea/ScoreTimerPanel"]
 layout_mode = 2
 text = "10"
-horizontal_alignment = 1
 vertical_alignment = 1
 
 [node name="LeaveTableButton" type="Button" parent="CardTableView/GameArea"]

@@ -32,10 +32,10 @@ public partial class Player : CharacterBody2D
 
     // Movement configuration (overridden by player stats)
     [Export]
-    public float BaseSpeed = 110.0f; // Level 1 speed from PRD
+    public float BaseSpeed = 80.0f; // Reduced from 110.0f for slower movement
 
     // Current movement speed (calculated from player stats)
-    public float CurrentSpeed { get; private set; } = 110.0f;
+    public float CurrentSpeed { get; private set; } = 80.0f;
 
     // Interaction system
     [Export]
@@ -60,7 +60,7 @@ public partial class Player : CharacterBody2D
     public float XPDistanceThreshold = 500.0f; // Award XP per this many pixels moved
 
     [Export]
-    public int MovementXPReward = 1; // Small amount to prevent exploitation
+    public int MovementXPReward = 10; // Increased 10x to balance slower movement speed
 
     // Events
     [Signal]
@@ -477,13 +477,14 @@ public partial class Player : CharacterBody2D
                 switch (objectName)
                 {
                     case "EggTray":
-                        if (EggsInInventory < 3) // Max 3 eggs from PRD
+                        int maxEggs = PlayerData?.GetMaxEggsInInventory() ?? 3; // Level-based max eggs or fallback to 3
+                        if (EggsInInventory < maxEggs)
                         {
                             PickupEgg();
                         }
                         else
                         {
-                            GD.Print("Player: Cannot pick up egg - inventory full (3/3)");
+                            GD.Print($"Player: Cannot pick up egg - inventory full ({EggsInInventory}/{maxEggs})");
                         }
                         break;
 
@@ -513,10 +514,11 @@ public partial class Player : CharacterBody2D
     /// </summary>
     private void PickupEgg()
     {
-        if (EggsInInventory < 3)
+        int maxEggs = PlayerData?.GetMaxEggsInInventory() ?? 3; // Level-based max eggs or fallback to 3
+        if (EggsInInventory < maxEggs)
         {
             EggsInInventory++;
-            GD.Print($"Player: Picked up egg! Total eggs: {EggsInInventory}/3");
+            GD.Print($"Player: Picked up egg! Total eggs: {EggsInInventory}/{maxEggs} (ThrowPower Level {PlayerData?.ThrowPower ?? 1})");
 
             // Update inventory display
             UpdateInventoryDisplay();
@@ -527,7 +529,7 @@ public partial class Player : CharacterBody2D
         }
         else
         {
-            GD.Print("Player: Cannot pick up egg - inventory full");
+            GD.Print($"Player: Cannot pick up egg - inventory full ({EggsInInventory}/{maxEggs})");
         }
     }
 
@@ -603,7 +605,8 @@ public partial class Player : CharacterBody2D
         if (inventoryLabel != null)
         {
             var items = new System.Collections.Generic.List<string>();
-            if (EggsInInventory > 0) items.Add($"Eggs: {EggsInInventory}/3");
+            int maxEggs = PlayerData?.GetMaxEggsInInventory() ?? 3; // Level-based max eggs or fallback to 3
+            if (EggsInInventory > 0) items.Add($"Eggs: {EggsInInventory}/{maxEggs}");
             if (HasStinkBomb) items.Add("Stink Bomb");
 
             string newText = items.Count > 0 ?
@@ -795,7 +798,8 @@ public partial class Player : CharacterBody2D
     /// <returns>Formatted status string</returns>
     public string GetPlayerStatus()
     {
-        return $"Speed: {CurrentSpeed:F1} px/s | Eggs: {EggsInInventory}/3 | Stink Bomb: {(HasStinkBomb ? "Yes" : "No")}";
+        int maxEggs = PlayerData?.GetMaxEggsInInventory() ?? 3; // Level-based max eggs or fallback to 3
+        return $"Speed: {CurrentSpeed:F1} px/s | Eggs: {EggsInInventory}/{maxEggs} | Stink Bomb: {(HasStinkBomb ? "Yes" : "No")}";
     }
 
     /// <summary>

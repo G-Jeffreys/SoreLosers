@@ -1,0 +1,11 @@
+[gd_scene load_steps=2 format=3 uid="uid://bqc2nkxlhtftn"]
+
+[ext_resource type="Script" path="res://scripts/AudioManager.cs" id="1"]
+
+[node name="AudioManager" type="Node"]
+script = ExtResource("1")
+MasterVolume = 0.8
+MusicVolume = 0.6
+SFXVolume = 0.8
+FadeDuration = 2.0
+EnableLooping = true 

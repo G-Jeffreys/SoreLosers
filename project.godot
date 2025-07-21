@@ -12,6 +12,7 @@ config_version=5
 
 config/name="SoreLosers"
 config/tags=PackedStringArray("csharp")
+config/icon="res://icon.png"
 run/main_scene="res://scenes/MainMenu.tscn"
 config/features=PackedStringArray("4.4", "C#")
 
@@ -22,6 +23,7 @@ NetworkManager="*res://scenes/NetworkManager.tscn"
 CardManager="*res://scenes/CardManager.tscn"
 SabotageManager="*res://scenes/SabotageManager.tscn"
 UIManager="*res://scenes/UIManager.tscn"
+AudioManager="*res://scenes/AudioManager.tscn"
 MatchManager="*res://scenes/MatchManager.tscn"
 NakamaManager="*res://scenes/NakamaManager.tscn"
 

@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3 uid="uid://cfw7xqwdp1ky3"]
+[gd_scene load_steps=3 format=3 uid="uid://cfw7xqwdp1ky3"]
 
 [ext_resource type="Script" uid="uid://bvnv736e5q43n" path="res://scripts/MainMenuUI.cs" id="1_0h4jv"]
+[ext_resource type="Texture2D" uid="uid://7tcbad3iggy8" path="res://assets/cards/backs/card_back_blue.png" id="2_card_back"]
 
 [node name="MainMenu" type="Control"]
 layout_mode = 3
@@ -19,6 +20,37 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 color = Color(0.2, 0.2, 0.3, 1)
+
+[node name="LeftCardDecoration" type="TextureRect" parent="."]
+layout_mode = 1
+anchors_preset = 4
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = 50.0
+offset_top = -450.0
+offset_right = 350.0
+offset_bottom = 450.0
+grow_vertical = 2
+texture = ExtResource("2_card_back")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="RightCardDecoration" type="TextureRect" parent="."]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -350.0
+offset_top = -450.0
+offset_right = -50.0
+offset_bottom = 450.0
+grow_horizontal = 0
+grow_vertical = 2
+texture = ExtResource("2_card_back")
+expand_mode = 1
+stretch_mode = 5
 
 [node name="VBoxContainer" type="VBoxContainer" parent="."]
 layout_mode = 1
@@ -51,15 +83,10 @@ text = "Host Game"
 layout_mode = 2
 text = "Join Game"
 
-[node name="TestButton" type="Button" parent="VBoxContainer"]
-layout_mode = 2
-text = "Test Game (Single Player)"
-
 [node name="QuitButton" type="Button" parent="VBoxContainer"]
 layout_mode = 2
 text = "Quit"
 
 [connection signal="pressed" from="VBoxContainer/HostButton" to="." method="_on_host_button_pressed"]
 [connection signal="pressed" from="VBoxContainer/JoinButton" to="." method="_on_join_button_pressed"]
-[connection signal="pressed" from="VBoxContainer/TestButton" to="." method="_on_test_button_pressed"]
 [connection signal="pressed" from="VBoxContainer/QuitButton" to="." method="_on_quit_button_pressed"]

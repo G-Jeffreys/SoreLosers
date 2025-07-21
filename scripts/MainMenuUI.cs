@@ -555,6 +555,11 @@ public partial class MainMenuUI : Control
     private void _on_host_button_pressed()
     {
         GD.Print("=== HOST BUTTON PRESSED ===");
+
+        // Play button click sound
+        var audioManager = GameManager.Instance?.AudioManager;
+        audioManager?.PlaySFX("button_click");
+
         GD.Print("Host button pressed - creating Nakama match");
         GD.Print($"MainMenuUI: Nakama status - Instance: {nakama != null}, Authenticated: {nakama?.IsAuthenticated}, Connected: {nakama?.IsConnected}");
 
@@ -615,6 +620,10 @@ public partial class MainMenuUI : Control
     private void _on_join_button_pressed()
     {
         GD.Print("Join button pressed - showing room code dialog");
+
+        // Play button click sound
+        var audioManager = GameManager.Instance?.AudioManager;
+        audioManager?.PlaySFX("button_click");
 
         if (nakama == null || !nakama.IsAuthenticated)
         {
@@ -696,15 +705,14 @@ public partial class MainMenuUI : Control
         CallDeferred(nameof(ShowJoinDialog));
     }
 
-    private void _on_test_button_pressed()
-    {
-        GD.Print("Test button pressed - testing Nakama connection");
-        ConnectToNakama();
-    }
-
     private void _on_quit_button_pressed()
     {
         GD.Print("Quit button pressed");
+
+        // Play button click sound
+        var audioManager = GameManager.Instance?.AudioManager;
+        audioManager?.PlaySFX("button_click");
+
         GetTree().Quit();
     }
 

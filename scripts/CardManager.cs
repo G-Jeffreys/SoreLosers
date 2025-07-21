@@ -663,6 +663,11 @@ public partial class CardManager : Node
             SyncDealtHandsToClients();
         }
 
+        // Play card shuffle sound effect
+        var gameManager = GameManager.Instance;
+        var audioManager = gameManager?.AudioManager;
+        audioManager?.PlaySFX("card_shuffle");
+
         // Notify UI that cards have been dealt
         EmitSignal(SignalName.HandDealt);
 

@@ -20,6 +20,43 @@ grow_horizontal = 2
 grow_vertical = 2
 color = Color(0.15, 0.25, 0.35, 1)
 
+[node name="GameInstructionsPanel" type="Panel" parent="."]
+layout_mode = 1
+anchors_preset = 4
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = 20.0
+offset_top = -300.0
+offset_right = 350.0
+offset_bottom = 300.0
+
+[node name="PanelStyleBox" type="StyleBoxFlat" parent="GameInstructionsPanel"]
+
+[node name="InstructionsVBox" type="VBoxContainer" parent="GameInstructionsPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 15.0
+offset_top = 15.0
+offset_right = -15.0
+offset_bottom = -15.0
+
+[node name="InstructionsTitle" type="Label" parent="GameInstructionsPanel/InstructionsVBox"]
+layout_mode = 2
+text = "🃏 GAME RULES"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="HSeparator" type="HSeparator" parent="GameInstructionsPanel/InstructionsVBox"]
+layout_mode = 2
+
+[node name="InstructionsText" type="RichTextLabel" parent="GameInstructionsPanel/InstructionsVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+text = "Loading instructions..."
+fit_content = true
+
 [node name="VBoxContainer" type="VBoxContainer" parent="."]
 layout_mode = 1
 anchors_preset = 8

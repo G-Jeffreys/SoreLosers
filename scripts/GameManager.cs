@@ -55,6 +55,7 @@ public partial class GameManager : Node
     public CardManager CardManager { get; private set; }
     public SabotageManager SabotageManager { get; private set; }
     public UIManager UIManager { get; private set; }
+    public AudioManager AudioManager { get; private set; }
 
     // Events for system communication
     [Signal]
@@ -156,9 +157,12 @@ public partial class GameManager : Node
         CardManager = GetNode<CardManager>("/root/CardManager");
         SabotageManager = GetNode<SabotageManager>("/root/SabotageManager");
         UIManager = GetNode<UIManager>("/root/UIManager");
+        AudioManager = GetNode<AudioManager>("/root/AudioManager");
 
         // Connect system signals
         ConnectSystemSignals();
+
+        GD.Print("GameManager: All core systems initialized including AudioManager");
     }
 
     /// <summary>
