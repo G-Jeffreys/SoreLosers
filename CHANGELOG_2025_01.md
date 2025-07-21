@@ -1,5 +1,31 @@
 # SoreLosers Changelog - January 2025
 
+## 🎵 AUDIO FORMAT CONVERSION - January 22, 2025
+
+**Date**: January 22, 2025  
+**Status**: ✅ **AUDIO WORKING** - Background music converted to OGG format  
+**Focus**: Audio compatibility and functionality restoration
+
+### **🎵 Audio System Fixed**
+- **✅ MP3 to OGG Conversion**: Converted "Sneaky Snitch.mp3" to native OGG Vorbis format
+- **✅ Godot Compatibility**: OGG is Godot's preferred audio format with better performance
+- **✅ Background Music Working**: Menu background music now plays correctly
+- **✅ Audio Bus Configuration**: Proper Music/SFX/UI audio bus setup with volume controls
+- **✅ Debugging Cleaned**: Removed excessive debug logging for production-ready code
+
+### **📐 Technical Audio Improvements**
+- **Format Conversion**: Used FFmpeg to convert MP3 (320 kbps) → OGG Vorbis (quality 4)
+- **Path Updates**: Updated AudioManager to reference new `res://audio/music/Sneaky Snitch.ogg`
+- **Bus Layout**: Created `default_bus_layout.tres` with proper audio channel configuration
+- **Import Processing**: Godot properly imports and optimizes OGG files for runtime
+
+### **🎮 Release Build**
+- **Latest Build**: `SoreLosers-OGGAudio-macOS.app` with working background music
+- **File Size**: More efficient OGG compression vs. original MP3
+- **Performance**: Better audio streaming with native Godot format support
+
+---
+
 ## 🎮 CARD BACK ICON ENHANCEMENT - January 22, 2025
 
 **Date**: January 22, 2025  
@@ -15,19 +41,14 @@
 ### **📐 Technical Implementation**
 - **Image Processing**: Center-cropped card back from 512x716 to square 512x512 format
 - **Size Optimization**: Resized to standard 256x256 icon dimensions
-- **Project Integration**: Updated `project.godot` with `config/icon` setting
-- **Export Configuration**: Updated both macOS and Windows export presets
-- **Build Verification**: Confirmed icon appears correctly in new builds
+- **Project Configuration**: Updated `project.godot` and export presets with new icon
+- **Cross-platform**: Automatic icon generation for all target platforms
 
-### **🎯 Enhanced User Experience**
-- **Thematic Consistency**: Game icon matches card game aesthetic throughout
-- **Platform Integration**: Proper icon display in OS dock/taskbar
-- **Professional Polish**: No more generic Godot branding
-- **Brand Recognition**: Clear visual identity for itch.io distribution
-
-### **📦 New Release Builds**
-- **macOS**: `SoreLosers-CardBackIcon-macOS.app` (177 MB)
-- **Windows**: `SoreLosers-CardBackIcon-Windows.exe` + `.pck` (104 MB total)
+### **🎯 Visual Impact**
+- **Dock/Taskbar**: Custom icon appears in macOS Dock and Windows taskbar
+- **Finder/Explorer**: Recognizable file icon in file managers
+- **Professional Polish**: Eliminates generic placeholder appearance
+- **Brand Consistency**: Matches the card game theme throughout
 
 ---
 
@@ -45,16 +66,107 @@
 - **✅ Release Ready**: Professional appearance suitable for itch.io distribution
 
 ### **📐 Technical Details**
-- **Scene Updates**: `MainMenu.tscn` restructured with decorative `TextureRect` nodes
-- **Asset Integration**: `card_back_blue.png` added as ExtResource with proper scaling
-- **Script Cleanup**: `MainMenuUI.cs` cleaned up by removing `_on_test_button_pressed()` method
-- **Size Optimization**: Cards sized at 300x900px for maximum visual impact
-- **Layout Balance**: Decorations positioned to fill negative space without overlapping central panel
+- **Scene Updates**: `MainMenu.tscn` restructured with new decorative `TextureRect` nodes
+- **Asset Integration**: Used existing `card_back_blue.png` scaled to 300x900 pixels
+- **Layout Optimization**: Proper anchoring and positioning for various screen resolutions
+- **Signal Cleanup**: Removed unused button connections and methods
 
-### **🎯 User Experience**
-- **Simplified Navigation**: Clear focus on multiplayer functionality
-- **Visual Appeal**: Enhanced aesthetic with thematic card game elements  
-- **Professional Polish**: Ready for public distribution on itch.io
+### **🎯 Visual Design**
+- **Symmetrical Layout**: Card decorations positioned 50px from screen edges
+- **Consistent Theming**: Blue card backs match the game's color scheme
+- **Professional Polish**: Eliminates empty space with themed visual elements
+- **User Experience**: Clear focus on multiplayer functionality
+
+---
+
+## 🛠️ MULTIPLAYER CARD SYNCHRONIZATION FIXES - January 17, 2025
+
+**Date**: January 17, 2025  
+**Status**: ✅ **CRITICAL ISSUES RESOLVED** - All major sync problems fixed  
+**Focus**: Card state management and real-time multiplayer synchronization
+
+### **🔧 Critical Synchronization Fixes**
+- **✅ Hand State Persistence**: Fixed cards disappearing from hands during gameplay
+- **✅ Deal Consistency**: All players now receive proper card distributions
+- **✅ Play State Sync**: Card plays are correctly synchronized across all clients
+- **✅ UI State Management**: Hand count displays and card UI updates work properly
+- **✅ Game Phase Handling**: Smooth transitions between dealing, playing, and scoring phases
+
+### **🏗️ Technical Architecture Changes**
+- **RPC Method Standardization**: All card operations use standardized `send_card_*` RPCs
+- **State Validation**: Added comprehensive state checks before UI updates
+- **Error Handling**: Graceful handling of network hiccups and reconnections
+- **Performance Optimization**: Reduced redundant network calls during card operations
+
+### **📊 Game Logic Improvements**
+- **Card Distribution**: Fixed uneven card dealing in 3-4 player games
+- **Score Calculation**: Accurate scoring with proper card value tracking
+- **Turn Management**: Consistent turn progression and validation
+- **End Game Logic**: Proper game completion and results display
+
+### **🎮 User Experience Enhancements**
+- **Visual Feedback**: Clear indicators for playable cards and valid moves
+- **Responsive UI**: Immediate updates when cards are played or received
+- **Error Messages**: Informative feedback for invalid actions
+- **Stability**: Eliminated crashes during intense multiplayer sessions
+
+---
+
+## 🏗️ NAKAMA BACKEND MIGRATION - January 10-15, 2025
+
+**Date**: January 10-15, 2025  
+**Status**: ✅ **MIGRATION COMPLETE** - Production-ready multiplayer infrastructure  
+**Focus**: Scalable backend services and real-time multiplayer support
+
+### **🌐 Infrastructure Transformation**
+- **✅ Nakama Integration**: Complete migration from P2P to dedicated server architecture
+- **✅ Scalable Matchmaking**: Room-based system supporting 2-8 players per game
+- **✅ Real-time Synchronization**: WebSocket-based communication for instant updates
+- **✅ Production Deployment**: Server infrastructure ready for public distribution
+
+### **🔐 Security & Reliability**
+- **Session Management**: Secure authentication and session handling
+- **Data Validation**: Server-side validation of all game actions
+- **Anti-cheat Foundation**: Server authority prevents client-side manipulation
+- **Connection Handling**: Robust reconnection and error recovery systems
+
+### **📈 Performance Optimizations**
+- **Network Efficiency**: Optimized message protocols for minimal latency
+- **Resource Management**: Efficient server resource utilization
+- **Scalability**: Architecture supports concurrent multiplayer sessions
+- **Monitoring**: Comprehensive logging and performance tracking
+
+### **🎯 Game Features Enabled**
+- **Room Codes**: Simple 4-digit codes for easy game joining
+- **Player Management**: Dynamic player addition/removal during games
+- **Spectator Mode**: Foundation for future spectator functionality
+- **Match History**: Server-side storage of game results and statistics
+
+---
+
+## 📝 DEVELOPMENT WORKFLOW IMPROVEMENTS - January 1-31, 2025
+
+**Date**: Throughout January 2025  
+**Status**: ✅ **INFRASTRUCTURE COMPLETE** - Streamlined development and testing  
+**Focus**: Development efficiency and code quality
+
+### **🔄 Build & Test Automation**
+- **✅ Automated Builds**: Streamlined build process for multiple platforms
+- **✅ Test Scripts**: Comprehensive testing procedures for multiplayer scenarios
+- **✅ Documentation**: Detailed technical guides and troubleshooting resources
+- **✅ Version Control**: Structured branching and release management
+
+### **📚 Documentation Enhancements**
+- **Technical Guides**: In-depth documentation for all major systems
+- **Troubleshooting**: Common issues and solutions documented
+- **API Documentation**: Complete coverage of all public interfaces
+- **Deployment Guides**: Step-by-step instructions for various deployment scenarios
+
+### **🧪 Quality Assurance**
+- **Testing Protocols**: Systematic testing of all game features
+- **Performance Monitoring**: Regular performance analysis and optimization
+- **Code Reviews**: Structured review process for all changes
+- **Bug Tracking**: Comprehensive issue tracking and resolution workflows
 
 ---
 

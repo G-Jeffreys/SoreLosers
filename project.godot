@@ -12,9 +12,9 @@ config_version=5
 
 config/name="SoreLosers"
 config/tags=PackedStringArray("csharp")
-config/icon="res://icon.png"
 run/main_scene="res://scenes/MainMenu.tscn"
 config/features=PackedStringArray("4.4", "C#")
+config/icon="res://icon.png"
 
 [autoload]
 
